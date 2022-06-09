@@ -1,0 +1,783 @@
+[[chapter_finite_fields]]
+[role="pagenumrestart"]
+== Campos finitos
+
+[.lead]
+Una de las cosas más difíciles de aprender a programar Bitcoin es saber por dónde empezar.
+Hay tantos componentes que dependen los unos de los otros que aprender una cosa puede llevarte a tener que aprender otra, que a su vez puede llevarte a tener que aprender otra cosa antes de poder entender la cosa original.
+
+Este capítulo va a permitirte un comienzo más manejable.
+Puede parecer extraño, pero vamos a empezar con las matemáticas básicas que necesitas para entender la criptografía de curva elíptica.
+La criptografía de curva elíptica, a su vez, nos da los algoritmos de firma y verificación.
+Estos son el corazón de cómo funcionan las transacciones, y las transacciones son la unidad atómica de la transferencia de valor en Bitcoin.
+Aprendiendo primero sobre los campos finitos y las curvas elípticas, obtendrá una firme comprensión de los conceptos que necesitará para progresar lógicamente.
+
+Ten en cuenta que este capítulo y los dos siguientes pueden parecerte un poco como si estuvieras comiendo verduras, especialmente si no has hecho matemáticas formales en mucho tiempo.
+Sin embargo, te animo a que los pases, ya que los conceptos y el código que se presentan aquí se utilizarán a lo largo de todo el libro.
+
+=== Aprendizaje de las matemáticas de nivel superior
+
+Aprender sobre nuevas estructuras matemáticas puede ser un poco intimidante, y en este capítulo espero disipar el mito de que las matemáticas de alto nivel son difíciles.
+Los campos finitos, en particular, no requieren mucho más en términos de conocimiento matemático previo que, por ejemplo, el álgebra.
+
+Piensa en los campos finitos como algo que podrías haber aprendido en lugar de la trigonometría, salvo que el sistema educativo del que formas parte decidió que la trigonometría era más importante para ti.
+Esta es mi manera de decirte que los campos finitos no son tan difíciles de aprender y no requieren más conocimientos que el álgebra.
+
+Este capítulo es necesario si quiere entender la criptografía de curva elíptica.
+La criptografía de curva elíptica es necesaria para entender la firma y la verificación, que es el corazón del propio Bitcoin.
+Como he dicho, este capítulo y los dos siguientes pueden parecer un poco inconexos, pero te animo a que aguantes.
+Los fundamentos aquí no sólo harán que la comprensión de Bitcoin sea mucho más fácil, sino que también harán más fácil la comprensión de las firmas Schnorr, las transacciones confidenciales y otras tecnologías punteras de Bitcoin.
+
+=== Definición de campo finito
+
+Matemáticamente, un _campo finito_ se define como un conjunto finito de números y dos operaciones *+* (suma) y *⋅* (multiplicación) que satisfacen lo siguiente:
+
+1. Si _a_ y _b_ están en el conjunto, __a + b__ y __a__ ⋅ __b__ están en el conjunto.
+A esta propiedad la llamamos _cerrada_.
+2. 0 existe y tiene la propiedad __a__ + 0 = __a__. La llamamos _identidad aditiva_.
+3. 1 existe y tiene la propiedad __a__ ⋅ 1 = __a__. Llamamos a esto la _identidad multiplicativa_.
+4. Si _a_ está en el conjunto, __-a__ está en el conjunto, que se define como el valor que hace que __a__ + (-__a__) = 0.
+Esto es lo que llamamos la _inversión aditiva_.
+5. Si _a_ está en el conjunto y no es 0, está en el conjunto __a__^-1^, que se define como el valor que hace que __a__ ⋅ __a__^-1^ = 1.
+Esto es lo que llamamos el _inverso multiplicativo_.
+
+Vamos a desgranar cada uno de estos criterios.
+
+Tenemos un conjunto de números que es finito.
+Como el conjunto es finito, podemos designar un número _p_, que es lo grande que es el conjunto.
+Esto es lo que llamamos el _orden_ del conjunto.
+
+#1 dice que somos cerrados bajo la suma y la multiplicación.
+Esto significa que tenemos que definir la adición y la multiplicación de manera que los resultados permanezcan en el conjunto.
+Por ejemplo, un conjunto que contenga {0,1,2} no es cerrado bajo la suma, ya que 1 + 2 = 3 y 3 no está en el conjunto; tampoco 2 + 2 = 4.
+Por supuesto, podemos definir la adición de forma diferente para que funcione, pero utilizando la adición "normal", este conjunto no es cerrado.
+Por otro lado, el conjunto {-1,0,1} es cerrado bajo la multiplicación normal.
+Se pueden multiplicar dos números cualesquiera (hay nueve combinaciones de este tipo) y el resultado está siempre en el conjunto.
+
+La otra opción que tenemos en matemáticas es definir la multiplicación de una manera particular para que estos conjuntos sean cerrados.
+Más adelante veremos cómo definimos exactamente la suma y la multiplicación, pero el concepto clave aquí es que podemos _definir la suma y la resta de forma diferente a la suma y la resta con las que estás familiarizado_.
+
+#2 y #3 significan que tenemos las identidades aditiva y multiplicativa.
+Eso significa que 0 y 1 están en el conjunto.
+
+#4 significa que tenemos la inversa aditiva.
+Es decir, si _a_ está en el conjunto, _-a_ está en el conjunto.
+Usando la inversa aditiva, podemos definir la resta.
+
+#5 significa que la multiplicación tiene la misma propiedad.
+Si _a_ está en el conjunto, __a__^-1^ está en el conjunto.
+Es decir, _a_ ⋅ __a__^-1^ = 1.
+Usando la inversa multiplicativa, podemos definir la división.
+Esta será la más complicada de definir en un campo finito.
+
+=== Definición de conjuntos finitos
+
+Si el orden (o tamaño) del conjunto es _p_, podemos llamar a los elementos del conjunto, 0, 1, 2, ... _p_ - 1.
+Estos números son lo que llamamos los _elementos_ del conjunto, no necesariamente los números tradicionales 0, 1, 2, 3, etc.
+Se comportan en muchos aspectos como los números tradicionales, pero tienen algunas diferencias en la forma de sumar, restar, multiplicar, etc.
+
+En notación matemática, el conjunto de campos finitos tiene este aspecto:
+
+++++
+<ul class="simplelist">
+<li><em>F</em><sub>p</sub> = {0, 1, 2, ... <em>p</em>-1}</li>
+</ul>
+++++
+
+Lo que hay en el conjunto de campos finitos son los elementos.
+__F__~__p__~ es un campo finito específico llamado "campo de _p_" o "campo de 29" o cualquiera que sea su tamaño (de nuevo, el tamaño es lo que los matemáticos llaman _orden_).
+Los números entre las {} representan qué elementos hay en el campo.
+Llamamos a los elementos 0, 1, 2, etc. porque estos nombres son convenientes para nuestros propósitos.
+
+
+Un campo finito de orden 11 tiene este aspecto:
+
+++++
+<ul class="simplelist">
+<li><em>F</em><sub>11</sub> = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}</li>
+</ul>
+++++
+
+Un campo finito de orden 17 tiene este aspecto:
+
+++++
+<ul class="simplelist">
+<li><em>F</em><sub>17</sub>= {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}</li>
+</ul>
+++++
+
+Un campo finito de orden 983 tiene este aspecto:
+
+++++
+<ul class="simplelist">
+<li><em>F</em><sub>983</sub>= {0, 1, 2, ... 982}</li>
+</ul>
+++++
+
+Observa que el orden del campo es siempre 1 más que el elemento mayor.
+Puede que te hayas dado cuenta de que el campo tiene siempre un orden primo.
+Por una serie de razones que se aclararán más adelante, resulta que los campos _deben_ tener un orden que sea una potencia de un primo, y que los campos finitos cuyo orden es primo son los que nos interesan.
+
+==== Construir un campo finito en Python
+
+Queremos representar cada elemento de campo finito, así que en Python, crearemos una clase que represente un solo elemento de campo finito.
+Naturalmente, llamaremos a la clase pass:[<span class="keep-together"><code>FieldElement</code></span>].
+
+
+La clase representa un elemento en un campo __F__~prime~.
+Los huesos desnudos de la clase se ven así:
+
+[fuente,python]
+----
+include::code-ch01/ecc.py[tag=source1]
+----
+<1> Primero comprobamos que `num` está entre `0` y `prime-1` inclusive.
+Si no es así, obtenemos un +ElementoCampo+ inválido y lanzamos un `ValueError`, que es lo que deberíamos lanzar cuando obtenemos un valor inapropiado.
+<2> El resto del método `__init__` asigna los valores de inicialización al objeto.
+<3> El método `__eq__` comprueba si dos objetos de la clase `FieldElement` son iguales.
+Esto sólo es cierto cuando las propiedades `num` y `prime` son iguales.
+
+Lo que hemos definido ya nos permite hacerlo:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo1]
+----
+
+Python nos permite anular el operador `==` en `FieldElement` con el método `__eq__`, que es algo que aprovecharemos en adelante.
+
+Puedes ver esto en acción en el código que acompaña a este libro.
+Una vez que hayas configurado Jupyter Notebook (ver <<configuración>>), puedes navegar a _code-ch01/Chapter1.ipynb_ y ejecutar el código para ver los resultados.
+Para el siguiente ejercicio, querrás abrir _ecc.py_ haciendo clic en el enlace de la caja del Ejercicio 1.
+Si te quedas atascado, recuerda que las respuestas a cada ejercicio están en <<apéndice_soluciones>>.
+
+include::code-ch01/answers.py[tag=exercise1,indent=0]
+
+=== Aritmética Modular
+
+Una de las herramientas que podemos utilizar para hacer que un campo finito sea cerrado bajo la suma, la resta, la multiplicación y la división es algo que se llama _aritmética del módulo_.
+
+Podemos definir la adición en el conjunto finito utilizando la aritmética del módulo, que es algo que probablemente aprendiste cuando aprendiste la división por primera vez.
+Recuerdas problemas como el de <<división_larga_ejemplo_uno>>?
+
+[[división_larga_ejemplo_uno]]
+Ejemplo de división larga 1
+image::images/prbc_0101.png[Ejemplo de división larga 1]
+
+Cuando la división no era uniforme, había algo llamado "resto", que es la cantidad que sobraba de la división real.
+Definimos el módulo de la misma manera.
+Usamos el operador % para el módulo:
+
+++++
+<ul class="simplelist">
+<li>7 % 3 = 1</li>
+</ul>
+++++
+
+<<ejemplo_de_división_larga_dos>> muestra otro ejemplo.
+
+[[división_larga_ejemplo_dos]]
+Ejemplo de división larga 2
+image::images/prbc_0102.png[Ejemplo de división larga 2]
+
+Formalmente, la operación de módulo es el resto tras la división de un número por otro.
+Veamos otro ejemplo con números más grandes:
+
+++++
+<ul class="simplelist">
+<li>1747 % 241 = 60</li>
+</ul>
+++++
+
+[role="pagebreak-before"]
+Si te sirve de ayuda, puedes pensar en la aritmética del módulo como una matemática "envolvente" o "de reloj".
+Imagina un problema como este:
+
+++++
+<ul class="simplelist">
+<li>Actualmente son las 3 de la tarde. Qué hora será dentro de 47 horas?</li>.
+</ul>
+++++
+
+La respuesta es a las 2 porque (3 + 47) % 12 = 2 (ver <<reloj_adelantado_47_horas>>).
+
+[[clock_going_forward_47_hours]]
+Reloj que avanza 47 horas
+image::images/prbc_0103.png[Reloj]
+
+También podemos ver esto como una "envoltura" en el sentido de que pasamos de 0 cada vez que nos adelantamos 12 horas.
+
+Podemos realizar el módulo sobre números negativos.
+Por ejemplo, puedes preguntar:
+
+++++
+<ul class="simplelist">
+<li>Actualmente son las 3 de la tarde.
+¿Qué hora era hace 16 horas?</li>.
+</ul>
+++++
+
+La respuesta es a las 11 en punto:
+
+++++
+<ul class="simplelist">
+<li>(3 - 16) % 12 = 11</li>
+</ul>
+++++
+
+El minutero también es una operación de módulo.
+Por ejemplo, se puede pedir:
+
+++++
+<ul class="simplelist">
+<li>Actualmente son 12 minutos después de la hora.
+¿Qué minuto será dentro de 843 minutos?</li>.
+</ul>
+++++
+
+Serán 15 minutos después de la hora:
+
+++++
+<ul class="simplelist">
+<li>(12 + 843) % 60 = 15</li>
+</ul>
+++++
+
+Del mismo modo, podemos preguntar:
+
+++++
+<ul class="simplelist">
+<li>Actualmente son 23 minutos después de la hora.
+¿Qué minuto será dentro de 97 minutos?</li>.
+</ul>
+++++
+
+En este caso, la respuesta es 0:
+
+++++
+<ul class="simplelist">
+<li>(23 + 97) % 60 = 0</li>
+</ul>
+++++
+
+0 es otra forma de decir que no hay resto.
+
+El resultado de la operación de módulo (%) para los minutos está siempre entre 0 y 59, ambos inclusive.
+Esto resulta ser una propiedad muy útil, ya que incluso los números muy grandes pueden reducirse a un rango relativamente pequeño con el módulo:
+
+++++
+<ul class="simplelist">
+<li>14738495684013 % 60 = 33</li>
+</ul>
+++++
+
+Utilizaremos el módulo cuando definamos la aritmética de campos.
+La mayoría de las operaciones en campos finitos utilizan el operador módulo de alguna manera.
+
+==== Aritmética Modular en Python
+
+Python utiliza el operador `%` para la aritmética del módulo.
+Así es como se utiliza el operador de módulo:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo2]
+----
+
+También podemos utilizar el operador módulo en números negativos, así:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo3]
+----
+
+=== Suma y resta de campos finitos
+
+Recordemos que tenemos que definir la adición en un campo finito de forma que nos aseguremos de que el resultado sigue estando en el conjunto.
+Es decir, queremos asegurarnos de que la suma en un campo finito es _cerrada_.
+
+Podemos utilizar lo que acabamos de aprender, la aritmética del módulo, para hacer que la suma sea cerrada.
+Digamos que tenemos un campo finito de 19:
+
+++++
+<ul class="simplelist">
+<li><em>F</em><sub>19</sub> = {0, 1, 2, ... 18}</li>
+</ul>
+++++
+
+donde _a_, _b_ ∈ __F__~19~. Nótese que el símbolo ∈ significa "es un elemento de".
+En nuestro caso, _a_ y _b_ son elementos de __F__~19~.
+
+Que la adición esté cerrada significa:
+
+++++
+<ul class="simplelist">
+<li><em>a</em>+<sub><em>f</em></sub>b ∈ F<sub>19</sub></li>
+</ul>
+++++
+
+Denotamos la suma de campos finitos con pass:[+<sub><em>f</em></sub>] para evitar la confusión con la suma normal de enteros, +.
+
+Si utilizamos la aritmética del módulo, podemos garantizar que esto sea así.
+Podemos definir pass:[<em>a</em>+<sub><em>f</em></sub><em>b</em>] de esta manera:
+
+++++
+<ul class="simplelist">
+<li><em>a</em>+<sub><em>f</em></sub><em>b</em> = (<em>a</em> + <em>b</em>)%19</li>
+</ul>
+++++
+
+
+Por ejemplo:
+
+++++
+<ul class="simplelist">
+<li>7+<sub><em>f</em></sub>8 = (7+8)%19 = 15</li>
+<li>11+<sub><em>f</em></sub>17 = (11+17)%19 = 9</li>
+</ul>
+++++
+
+
+y así sucesivamente.
+
+Tomamos dos números cualesquiera del conjunto, los sumamos y "envolvemos" el final para obtener la suma.
+Aquí estamos creando nuestro propio operador de suma y el resultado es un poco poco intuitivo.
+Después de todo, pass:[11+<sub><em>f</em></sub>17 = 9] no se ve bien porque no estamos acostumbrados a la suma de campos finitos.
+
+De manera más general, definimos la adición de campos de esta manera:
+
+++++
+<ul class="simplelist">
+<li><em>a</em>+<sub><em>f</em></sub><em>b</em> = (<em>a</em> + <em>b</em>)%<em>p</em></li>.
+</ul>
+++++
+ 
+donde _a_, _b_ ∈ __F__~__p__~.
+
+También definimos la inversa aditiva de esta manera. pass:[<em>a</em> ∈ <em>F</em><sub><em>p</em></sub> implica que -<sub><em>f</em></sub><em>a</em> ∈ <em>F</em><sub><em>p</em></sub>]:
+
+++++
+<ul class="simplelist">
+<li>-<sub><em>f</em></sub><em>a</em> = (-<em>a</em>) % <em>p</em></li>.
+</ul>
+++++
+
+
+
+De nuevo, para mayor claridad, utilizamos pass:[-<sub><em>f</em></sub>] para distinguir la sustracción y negación de campos de la sustracción y negación de enteros.
+
+En __F__~19~:
+
+++++
+<ul class="simplelist">
+<li>-<sub><em>f</em></sub>9 = (-9) % 19 = 10</li>
+</ul>
+++++
+
+
+lo que significa que:
+
+++++
+<ul class="simplelist">
+<li>9+<sub><em>f</em></sub> 10 = 0</li>
+</ul>
+++++
+
+
+
+Y eso resulta ser cierto.
+
+Del mismo modo, podemos hacer la resta de campos:
+
+++++
+<ul class="simplelist">
+<li><em>a</em>-<sub><em>f</em></sub><em>b</em> = (<em>a</em> - <em>b</em>)%<em>p</em></li>.
+</ul>
+++++
+
+ 
+donde _a_, _b_ ∈ __F__~__p__~.
+
+En __F__~19~:
+
+++++
+<ul class="simplelist">
+<li>11-<sub><em>f</em></sub>9=(11-9)%19 = 2</li>
+<li>6-<sub><em>f</em></sub>13=(6-13)%19 = 12</li>
+</ul>
+++++
+
+y así sucesivamente.
+
+include::code-ch01/answers.py[tag=exercise2,indent=0]
+
+==== Codificación de sumas y restas en Python
+
+En la clase `FieldElement` podemos ahora definir los métodos `__add__` y `__sub__`.
+La idea de estos métodos es que queremos que funcione algo así:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo4]
+----
+
+En Python podemos definir lo que significa la adición (o el operador +) para nuestra clase con el método `__add__`.
+¿Cómo lo hacemos?
+Combinamos lo que aprendimos con la aritmética del módulo y creamos un nuevo método de la clase `FieldElement` así:
+
+[fuente,python]
+----
+include::code-ch01/ecc.py[tag=source2]
+----
+<1> Tenemos que asegurarnos de que los elementos son del mismo campo finito, de lo contrario este cálculo no tiene ningún sentido.
+<2> La adición en un campo finito se define con el operador módulo, como se ha explicado anteriormente.
+<3> Tenemos que devolver una instancia de la clase, a la que podemos acceder cómodamente con `self.__class__`.
+Pasamos los dos argumentos de inicialización, `num` y `self.prime`, para el método `__init__` que vimos antes.
+
+Ten en cuenta que podríamos utilizar `FieldElement` en lugar de `self.__class__`, pero esto no haría que el método fuera fácilmente heredable.
+Más adelante subclasificaremos `FieldElement`, por lo que es importante que el método sea heredable.
+
+include::code-ch01/answers.py[tag=exercise3,indent=0]
+
+=== Multiplicación y exponenciación de campos finitos
+
+Al igual que definimos una nueva suma (+~__f__~) para campos finitos cerrados, también podemos definir una nueva multiplicación para campos finitos cerrados.
+Al multiplicar el mismo número muchas veces, también podemos definir la exponenciación.
+En esta sección, veremos exactamente cómo definir esto usando la aritmética del módulo.
+
+Multiplicar es sumar varias veces:
+
+++++
+<ul class="simplelist">
+<li>5 ⋅ 3 = 5 + 5 + 5 = 15</li>
+<li>8 ⋅ 17 = 8 + 8 + 8 + ... (17 totales de 8) ... + 8 = 136</li>
+</ul>
+++++
+
+Podemos definir la multiplicación en un campo finito de la misma manera.
+Operando en __F__~19~ una vez más:
+
+++++
+<ul class="simplelist">
+<li>5 ⋅<sub><em>f</em></sub> 3 = 5 +<sub><em>f</em></sub> 5 +<sub><em>f</em></sub> 5</li>
+<li>8 ⋅<sub><em>f</em></sub> 17 = 8 +<sub><em>f</em></sub> 8 +<sub><em>f</em></sub> 8 +<sub><em>f</em></sub> ... (17 totales de 8) ... +<sub><em>f</em></sub> 8</li>
+</ul>
+++++
+
+Ya sabemos cómo hacer el lado derecho, y eso produce un número dentro del conjunto __F__~19~:
+
+++++
+<ul class="simplelist">
+<li>5 ⋅<sub><em>f</em></sub> 3 = 5 +<sub><em>f</em></sub> 5 +<sub><em>f</em></sub> 5 = 15 % 19 = 15</li>
+<li>8 ⋅<sub><em>f</em></sub> 17 = 8 +<sub><em>f</em></sub> 8 +<sub><em>f</em></sub> 8 +<sub><em>f</em></sub> ... (17 totales de 8) ... +<sub><em>f</em></sub> 8 = (8⋅17) % 19 = 136 % 19 = 3</li>
+</ul>
+++++
+
+Nótese que el segundo resultado es bastante poco intuitivo.
+Normalmente no pensamos que 8 ⋅~__f__~ 17 = 3, pero eso es parte de lo necesario para definir que la multiplicación es cerrada.
+Es decir, el resultado de la multiplicación de campos está siempre en el conjunto {0, 1, ... __p__-1}.
+
+La exponenciación es simplemente multiplicar un número muchas veces:
+
+++++
+<ul class="simplelist">
+<li>7<sup>3</sup>=7⋅<sub><em>f</em></sub>7⋅<sub><em>f</em></sub>7 = 343</li>.
+</ul>
+++++
+
+En un campo finito, podemos hacer la exponenciación utilizando la aritmética del módulo.
+
+En __F__~19~:
+
+++++
+<ul class="simplelist">
+<li>7<sup>3</sup> = 343 % 19=1</li>
+<li>9<sup>12</sup> = 7</li>
+</ul>
+++++
+
+
+La exponenciación vuelve a darnos resultados contraintuitivos.
+Normalmente no pensamos que 7^3^ = 1 o 9^12^ = 7.
+Una vez más, los campos finitos tienen que ser definidos de manera que las operaciones _siempre_ den como resultado un número dentro del campo.
+
+include::code-ch01/answers.py[tag=exercise4,indent=0]
+
+include::code-ch01/answers.py[tag=exercise5,indent=0]
+
+Por qué son útiles los campos primos
+[NOTA]
+====
+La respuesta al Ejercicio 5 es la razón por la que elegimos utilizar campos finitos con un número _primo_ de elementos.
+No importa qué _k_ elijas, siempre que sea mayor que 0, multiplicar todo el conjunto por _k_ dará como resultado el mismo conjunto con el que empezaste.
+
+Intuitivamente, el hecho de tener un orden primo hace que cada elemento de un campo finito sea equivalente.
+Si el orden del conjunto fuera un número compuesto, al multiplicar el conjunto por uno de los divisores se obtendría un conjunto más pequeño.
+====
+
+==== Codificación de la multiplicación en Python
+
+Ahora que entendemos cómo debe ser la multiplicación en `FieldElement`, queremos definir el método `__mul__` que anula el operador `*`.
+Queremos que esto funcione:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo5]
+----
+
+Al igual que con la suma y la resta, el siguiente ejercicio es hacer que la multiplicación funcione para nuestra clase definiendo el método `__mul__`.
+
+include::code-ch01/answers.py[tag=exercise6,indent=0]
+
+==== Codificación de la exponenciación en Python
+
+Necesitamos definir la exponenciación para `FieldElement`, que en Python se puede definir con el método `__pow__`, anulando el operador `**`.
+La diferencia es que el exponente no es un elemento de campo, por lo que hay que tratarlo de forma diferente.
+Queremos que funcione algo así:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo6]
+----
+
+Nótese que como el exponente es un entero, en lugar de otra instancia de `FieldElement`, el método recibe la variable `exponent` como un entero.
+Podemos codificarlo de esta manera:
+
+[fuente,python]
+----
+clase FieldElement:
+...
+    def __pow__(self, exponente):
+        num = (self.num ** exponente) % self.prime # <1>
+        return self.__class__(num, self.prime) # <2>
+----
+<1> Esta es una forma perfectamente correcta de hacerlo, pero `pow(self.num, exponente, self.prime)` es más eficiente.
+<2> Tenemos que devolver una instancia de la clase como antes.
+
+¿Por qué no obligamos a que el exponente sea un objeto `FieldElement`?
+Resulta que el exponente no tiene que ser un miembro del campo finito para que las matemáticas funcionen.
+De hecho, si lo fuera, los exponentes no mostrarían el comportamiento intuitivo que esperamos, como poder sumar los exponentes cuando multiplicamos con la misma base.
+
+Algunas de las cosas que estamos haciendo ahora pueden parecer lentas para números grandes, pero utilizaremos algunos trucos inteligentes para mejorar el rendimiento de estos algoritmos.
+
+include::code-ch01/answers.py[tag=exercise7,indent=0]
+
+=== División de campos finitos
+
+La intuición que nos ayuda con la suma, la resta, la multiplicación y quizás incluso la exponenciación, lamentablemente no nos ayuda tanto con la división.
+Como la división es la operación más difícil de entender, empezaremos con algo que debería tener sentido.
+
+En matemáticas normales, la división es la inversa de la multiplicación:
+
+* 7 ⋅ 8 = 56 implica que 56/8 = 7
+* 12 ⋅ 2 = 24 implica que 24/12 = 2
+
+Y así sucesivamente.
+Podemos usar esto como definición de la división para ayudarnos.
+Observa que, como en las matemáticas normales, no puedes dividir por 0.
+
+En __F__~19~, sabemos que:
+
+++++
+<ul class="simplelist">
+<li>3⋅<sub><em>f</em></sub>7 = 21%19 = 2 implica que 2/<sub><em>f</em></sub>7 = 3</li>
+<li>9⋅<sub><em>f</em></sub>5 = 45%19 = 7 implica que 7/<sub><em>f</em></sub>5 = 9</li>
+</ul>
+++++
+
+Esto es muy poco intuitivo, ya que generalmente pensamos en 2/~__f__~7 o 7/~__f__~5 como fracciones, no como elementos de campos finitos.
+Sin embargo, ésta es una de las cosas más notables de los campos finitos: los campos finitos son _cerrados_ bajo la división.
+Es decir, la división de dos números cualesquiera en los que el denominador no sea 0 dará lugar a otro elemento de campo finito.
+
+La pregunta que te estarás haciendo es, ¿cómo puedo calcular 2/~__f__~7 si no sé de antemano que 3⋅~__f__~7 = 2?
+Esta es una muy buena pregunta; para responderla, tendremos que utilizar el resultado del ejercicio 7.
+
+Por si no lo has entendido, la respuesta es que __n__^(__p__-1)^ es siempre 1 para todo _p_ que sea primo y todo _n_ > 0.
+Se trata de un bello resultado de la teoría de los números llamado el pequeño teorema de Fermat.
+Esencialmente, el teorema dice:
+
+++++
+<ul class="simplelist">
+<li><em>n</em><sup>(<em>p</em>-1)</sup>%<em>p</em> = 1 </li>
+</ul>
+++++
+
+donde _p_ es primo.
+
+Como operamos en campos de primera, esto siempre será así.
+
+El pequeño teorema de Fermat
+****
+Hay muchas pruebas de este teorema, pero quizás la más sencilla es utilizar lo que vimos en el Ejercicio 5, es decir, que estos conjuntos son iguales:
+
+++++
+<ul class="simplelist">
+<li>{1, 2, 3, ... <em>p</em>-2, <em>p</em>-1} = {<em>n</em>%<em>p</em>, 2<em>n</em>%<em>p</em>, 3<em>n</em>%<em>p</em> (<em>p</em>-2)<em>n</em>%<em>p</em>, (<em>p</em>-1)<em>n</em>%<em>p</em></li>
+</ul>
+++++
+
+Los números resultantes pueden no estar en el orden correcto, pero los mismos números están en ambos conjuntos. Podemos entonces multiplicar cada elemento de ambos conjuntos para obtener esta igualdad:
+
+++++
+<ul class="simplelist">
+<li>1 ⋅ 2 ⋅ 3 ⋅ ... ⋅ (<em>p</em>-2) ⋅ (<em>p</em>-1) % <em>p</em> = <em>n</em> ⋅ 2<em>n</em> ⋅ 3<em>n</em> ⋅ ... ⋅ (<em>p</em>-2)<em>n</em> ⋅ (<em>p</em>-1)<em>n</em> % <em>p</em></li>
+</ul>
+++++
+
+¡El lado izquierdo es el mismo que (__p__-1)! % _p_ donde ! es el factorial (por ejemplo
+5! = 5 ⋅ 4 ⋅ 3 ⋅ 2 ⋅ 1). En el lado derecho, podemos reunir todos los __n__` y obtener:
+
+++++
+<ul class="simplelist">
+¡<li>(<em>p</em>-1)! ⋅ <em>n</em><sup>(p-1)</sup> % <em>p</em></li>
+</ul>
+++++
+
+Así:
+
+++++
+<ul class="simplelist">
+¡<li>(<em>p</em>-1)! ¡% <em>p</em> = (<em>p</em>-1)! ⋅ <em>n</em><sup>(p-1)</sup> % <em>p</em></li>
+</ul>
+++++
+
+El (_p_-1)! en ambos lados se cancela, dándonos:
+
+++++
+<ul class="simplelist">
+<li>1 = <em>n</em><sup>(p-1)</sup> % <em>p</em></li>
+</ul>
+++++
+
+
+Esto demuestra el pequeño teorema de Fermat.
+****
+
+Porque la división es la inversa de la multiplicación, lo sabemos:
+
+++++
+<ul class="simplelist">
+<li><em>a</em>/<em>b</em> = <em>a</em>⋅<sub><em>f</em></sub>(1/<em>b</em>) = <em>a</em>⋅<sub><em>f</em></sub><em>b</em><sup>-1</sup></li>.
+</ul>
+++++
+
+
+Podemos reducir el problema de la división a un problema de multiplicación siempre que podamos averiguar qué es __b__^-1^.
+Aquí es donde entra en juego el pequeño teorema de Fermat.
+Lo sabemos:
+
+++++
+<ul class="simplelist">
+<li><em>b</em><sup>(<em>p</em>-1)</sup> = 1</li>
+</ul>
+++++
+
+porque _p_ es primo. Por lo tanto:
+
+++++
+<ul class="simplelist">
+<li><em>b</em><sup>-1</sup> = <em>b</em><sup>-1</sup>⋅<sub><em>f</em></sub>1=<em>b</em><sup>-1</sup>⋅<sub><em>f</sub><em>b</em><sup>(<em>p</em>-1)</sup> = <em>b</em><sup>(<em>p</em>-2)</sup></li>
+</ul>
+++++
+
+
+o:
+
+++++
+<ul class="simplelist">
+<li><em>b</em><sup>-1</sup> = <em>b</em><sup>(<em>p</em>-2)</sup></li>
+</ul>
+++++
+
+
+En __F__~19~, esto significa prácticamente que pasa:[<em>b</em><sup>18</sup> = 1 ], lo que significa que __b__^-1^ = __b__^17^ para todo _b_ > 0.
+
+En otras palabras, podemos calcular la inversa utilizando el operador de exponenciación.
+En __F__~19~:
+
+++++
+<ul class="simplelist">
+<li>2/7 = 2⋅7<sup>(19 - 2)</sup> = 2⋅7<sup>17</sup>=465261027974414%19 = 3</li>
+<li> 7/5 = 7⋅5<sup>(19 - 2)</sup> = 7⋅5<sup>17</sup>=5340576171875%19 = 9</li>
+</ul>
+++++
+
+
+Este es un cálculo relativamente caro, ya que la exponenciación crece muy rápido.
+La división es la operación más cara por esa razón.
+Para disminuir el gasto, podemos usar la función `pow` en Python, que hace la exponenciación.
+En Python, `pow(7,17)` hace lo mismo que `7**17`.
+La función `pow`, sin embargo, tiene un tercer argumento opcional que hace nuestro cálculo más eficiente.
+En concreto, `pow` modula por el tercer argumento.
+Así, `pow(7,17,19)` dará el mismo resultado que `7**17%19` pero lo hará más rápido porque la función módulo se realiza después de cada ronda de multiplicación.
+
+include::code-ch01/answers.py[tag=exercise8,indent=0]
+
+include::code-ch01/answers.py[tag=exercise9,indent=0]
+
+=== Redefinición de la Exponenciación
+
+Una última cosa de la que tenemos que ocuparnos antes de dejar este capítulo es el método `__pow__`, que necesita manejar exponentes negativos.
+Por ejemplo, __a__^-3^ necesita ser un elemento de campo finito, pero el código actual no se ocupa de este caso.
+Queremos, por ejemplo, que funcione algo así:
+
+[fuente,python]
+----
+include::code-ch01/ejemplos.py[tag=ejemplo7]
+----
+
+Desafortunadamente, la forma en que hemos definido `__pow__` simplemente no maneja exponentes negativos, porque el segundo parámetro de la función incorporada de Python `pow` se requiere que sea positivo.
+
+Afortunadamente, podemos usar algunas matemáticas que ya conocemos para resolver esto. Sabemos de paso:[<span class="keep-together">el pequeño teorema de Fermat</span>] que:
+
+++++
+<ul class="simplelist">
+<li><em>a</em><sup><em>p</em>-1</sup> = 1</li>
+</ul>
+++++
+
+
+Este hecho significa que podemos multiplicar por __a__^__p__-1^ tantas veces como queramos.
+Así, para __a__^-3^, podemos hacer:
+
+++++
+<ul class="simplelist">
+<li><em>a</em><sup>-3</sup> = <em>a</em><sup>-3</sup> ⋅ <em>a</em><sup><em>p</em>-1</sup> = <em>a</em><sup><em>p</em>-4</sup></li>
+</ul>
+++++
+
+Esta es una forma de hacer exponentes negativos.
+Una implementación ingenua haría algo así:
+
+[fuente,python]
+----
+clase FieldElement:
+...
+    def __pow__(self, exponente):
+	n = exponente
+	while n < 0
+	    n += self.prime - 1 # <1>
+        num = pow(self.num, n, self.prime) # <2>
+        return self.__class__(num, self.prime)
+----
+<1> Sumamos hasta obtener un exponente positivo.
+<2> Usamos el `pow` incorporado en Python para hacer esto más eficiente.
+
+Afortunadamente, podemos hacerlo aún mejor.
+Ya sabemos cómo forzar que un número deje de ser negativo, usando nuestro conocido amigo `%`.
+Como ventaja, también podemos reducir exponentes muy grandes al mismo tiempo, dado que __a__^__p__-1^ = 1.
+Esto hará que la función `pow` no trabaje tanto:
+
+[fuente,python]
+----
+clase FieldElement:
+...
+include::code-ch01/ecc.py[tag=source3]
+----
+<1> Convierte el exponente en algo dentro del rango de 0 a __p__-2, inclusive.
+
+=== Conclusión
+
+En este capítulo hemos aprendido sobre los campos finitos y cómo implementarlos en Python.
+Utilizaremos los campos finitos en <<capítulo_criptografía_de_curvas_elípticas>> para la criptografía de curvas elípticas.
+Pasamos a continuación al otro componente matemático que necesitamos para la criptografía de curvas elípticas: las curvas elípticas.

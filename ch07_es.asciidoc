@@ -1,0 +1,390 @@
+[[capítulo_tx]]
+
+== Creación y validación de transacciones
+
+[.lead]
+Una de las cosas más complicadas de codificar en Bitcoin es la validación de las transacciones.
+Otra es la creación de transacciones.
+En este capítulo, cubriremos los pasos exactos para hacer ambas cosas.
+Hacia el final del capítulo, crearemos una transacción en testnet y la difundiremos.
+
+=== Validación de transacciones
+
+Cada nodo, al recibir las transacciones, se asegura de que cada una de ellas se ajusta a las reglas de la red.
+Este proceso se llama _validación de transacciones_.
+Estas son las principales cosas que comprueba un nodo:
+
+1. Los insumos de la transacción son previamente no gastados.
+2. La suma de las entradas es mayor o igual que la suma de las salidas.
+3. El ScriptSig desbloquea con éxito el ScriptPubKey anterior.
+
+#El número 1 evita el doble gasto.
+Cualquier entrada que haya sido gastada (es decir, incluida en la cadena de bloques) no puede ser gastada de nuevo.
+
+#2 se asegura de que no se creen nuevos bitcoins (excepto en un tipo especial de transacción llamada transacción coinbase; más sobre esto en <<capítulo_bloques>>).
+
+#3 se asegura de que el script combinado es válido.
+En la gran mayoría de las transacciones, esto significa comprobar que la o las firmas del ScriptSig son válidas.
+
+Veamos cómo se comprueba cada condición.
+
+[role="pagebreak-before"]
+==== Comprobación del gasto de las entradas
+
+Para evitar el doble gasto, un nodo comprueba que cada entrada existe y no ha sido gastada.
+Esto puede ser comprobado por cualquier nodo completo mirando el conjunto UTXO (ver <<capítulo_tx_parsing>>).
+No podemos determinar a partir de la propia transacción si se trata de un gasto doble, de la misma manera que no podemos mirar un cheque personal y determinar si está en descubierto.
+La única forma de saberlo es tener acceso al conjunto de UTXO, lo que requiere un cálculo a partir del conjunto de transacciones.
+
+En Bitcoin, podemos determinar si una entrada está siendo doblemente gastada llevando la cuenta de los UTXOs.
+Si una entrada está en el conjunto de UTXOs, esa entrada de la transacción existe y _no_ es de doble gasto.
+Si la transacción pasa el resto de las pruebas de validez, entonces eliminamos todas las entradas de la transacción del conjunto de UTXO.
+Los clientes ligeros que no tienen acceso a la cadena de bloques tienen que confiar en otros nodos para obtener mucha información, incluyendo si una entrada ya ha sido gastada.
+
+Un nodo completo puede comprobar el gasto de una entrada con bastante facilidad, pero un cliente ligero tiene que obtener esta información de otra persona.
+
+==== Comprobación de la suma de las entradas frente a la suma de las salidas
+
+Los nodos también se aseguran de que la suma de las entradas sea mayor o igual que la suma de las salidas.
+Esto asegura que la transacción no crea nuevas monedas.
+La única excepción es una transacción de coinbase, que estudiaremos más en el <<capítulo_bloques>>.
+Como las entradas no tienen un campo de cantidad, ésta debe buscarse en la blockchain.
+Una vez más, los nodos completos tienen acceso a las cantidades asociadas con la salida no gastada, pero los clientes ligeros tienen que depender de los nodos completos para suministrar esta información.
+
+En el <<capítulo_tx_parsing>> hemos visto cómo calcular las tasas.
+Comprobar que la suma de las entradas es mayor o igual que la suma de las salidas es lo mismo que comprobar que la tasa no es negativa (es decir, que crea dinero).
+Recuerda el último ejercicio del <<capítulo_tx_parsing>>.
+El método `fee` tiene el siguiente aspecto:
+
+[fuente,python]
+----
+clase Tx:
+    ...
+include::code-ch07/tx.py[tag=source1]
+----
+
+Podemos comprobar si esta transacción está intentando crear dinero utilizando este método:
+
+[fuente,python]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo1]
+----
+<1> Esto sólo funciona porque estamos usando Python (ver <<valueOverflow>>).
+
+Si la tasa es negativa, sabemos que la `suma_salida` es mayor que la `suma_entrada`, que es otra forma de decir que esta transacción está intentando crear bitcoins a partir del éter.
+
+[[valorDesbordamiento]]
+[NOTA]
+El incidente del desbordamiento del valor
+====
+En 2010, hubo una transacción que creó 184 mil millones de bitcoins nuevos.
+Esto se debió al hecho de que en C++, el campo de la cantidad es un entero _signed_ y no un entero _unsigned_.
+Es decir, ¡el valor podía ser negativo!
+
+La ingeniosa transacción pasó todas las comprobaciones, incluida la de no crear nuevos bitcoins, pero sólo porque las cantidades de salida superaron el número máximo.
+2^64^ es ~1,84 &#215; 10^19^ satoshis, que son 184 mil millones de bitcoins.
+¡La tasa era negativa por lo suficiente como para que el código C++ fuera engañado para que creyera que la tasa era en realidad positiva por 0,1 BTC!
+
+La vulnerabilidad se detalla en CVE-2010-5139 y fue parcheada a través de un soft fork en Bitcoin Core 0.3.11.
+La transacción y los bitcoins extra que creó fueron invalidados de forma retroactiva por una reorganización de bloques, que es otra forma de decir que el bloque que incluye la transacción de desbordamiento de valor y todos los bloques construidos sobre él fueron reemplazados.
+====
+
+==== Comprobación de la firma
+
+Quizá la parte más complicada de la validación de una transacción sea el proceso de comprobación de sus firmas.
+Una transacción suele tener al menos una firma por entrada.
+Si se gastan salidas multisig, puede haber más de una.
+Como aprendimos en el <<capítulo_de_criptografía_elíptica>>, el algoritmo de firma ECDSA requiere la clave pública _P_, el hash de la firma _z_, y la firma (_r_,_s_).
+Una vez que se conocen, el proceso de verificación de la firma es bastante sencillo, como ya codificamos en <<capítulo_eliptico_curva_de_cripcion>>:
+
+[fuente,python]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo2]
+----
+
+Las claves públicas SEC y las firmas DER están en la pila cuando se ejecuta un comando como `OP_CHECKSIG`, lo que hace que obtener la clave pública y la firma sea bastante sencillo (ver <<capítulo_script>>).
+La parte difícil es obtener el hash de la firma.
+Una forma ingenua de hacerlo sería obtener el hash de la serialización de la transacción como se muestra en <<a_signature_is_in_the_yellow_highlighted_part_or_the_scriptsig>>.
+Desafortunadamente, no podemos hacer eso, ya que la firma es parte del ScriptSig y una firma no puede firmarse a sí misma.
+
+[[a_signature_is_in_the_yellow_highlighted_part_or_the_scriptsig]]
+Una firma está en la parte resaltada en amarillo, o en el ScriptSig
+image::images/prbc_0701.png[Inicio de validación]
+
+En cambio, modificamos la transacción antes de firmarla.
+Es decir, calculamos un hash de firma diferente _para cada entrada_.
+El procedimiento es el siguiente.
+
+===== Paso 1: Vaciar todos los ScriptSigs
+
+El primer paso es vaciar todos los ScriptSigs al comprobar la firma (<<empty_each_inputs_scriptsig_in_yellow_highlighted_field>>).
+El mismo procedimiento se utiliza para crear la firma, excepto que los ScriptSigs suelen estar ya vacíos.
+
+[[empty_each_inputs_scriptsig_in_yellow_highlighted_field]]
+Vaciar el ScriptSig de cada entrada (en el campo amarillo resaltado, ahora 00)
+image::images/prbc_0702.png[Paso de validación 1]
+
+Tenga en cuenta que este ejemplo sólo tiene una entrada, por lo que sólo se vacía el ScriptSig de esa entrada, pero es posible tener más de una entrada. En ese caso, se vaciaría cada una de ellas.
+
+===== Paso 2: Sustituir el ScriptSig de la entrada que se está firmando por el ScriptPubKey anterior
+
+Cada entrada apunta a una salida de transacción anterior, que tiene una ScriptPubKey. Recordemos el diagrama del <<capítulo_script>>, que se muestra de nuevo en <<scriptpubkey_y_scriptsig2>>.
+
+[[scriptpubkey_y_scriptsig2]]
+Combinación de ScriptPubKey y ScriptSig
+image::images/prbc_0703.png[ScriptPubKey y ScriptSig]
+
+Tomamos la ScriptPubKey a la que apunta la entrada y la colocamos en lugar de la ScriptSig vacía (<<reemplazar el campo resaltado en amarillo de una de las entradas con la anterior ScriptPubkey>>).
+Esto puede requerir una búsqueda en la cadena de bloques, pero en la práctica el firmante ya conoce la ScriptPubKey, ya que la entrada es una en la que el firmante tiene la clave privada.
+
+[[reemplazar_el_scriptSig_campo_resaltado_amarillo_de_una_de_las_entradas_con_la_clave_de_script anterior]]
+Reemplazar el ScriptSig (campo resaltado en amarillo) para una de las entradas con el ScriptPubKey anterior
+image::images/prbc_0704.png[Paso de validación 2]
+
+===== Paso 3: Añadir el tipo de hash
+
+Por último, añadimos un tipo de hash de 4 bytes al final.
+Esto es para especificar lo que la firma está autorizando.
+La firma puede autorizar que esta entrada vaya con todas las demás entradas y salidas (`SIGHASH_ALL`), que vaya con una salida específica (`SIGHASH_SINGLE`), o que vaya con cualquier salida (`SIGHASH_NONE`).
+Los dos últimos tienen algunos casos de uso teórico, pero en la práctica, casi todas las transacciones se firman con `SIGHASH_ALL`.
+También hay un tipo de hash poco utilizado llamado `SIGHASH_ANYONECANPAY` que puede combinarse con cualquiera de los tres anteriores, en el que no entraremos aquí.
+Para `SIGHASH_ALL`, la transacción final debe tener las salidas exactas que fueron firmadas o la firma de entrada no es válida.
+
+El entero correspondiente a `SIGHASH_ALL` es 1 y este tiene que ser codificado en little-endian sobre 4 bytes, lo que hace que la transacción modificada se vea como <<append_the_hash_type_sighash_all_or_the_orange_01000000>>.
+
+[[append_the_hash_type_sighash_all_or_the_orange_01000000]]
+.Añade el tipo de hash (SIGHASH_ALL), o el marrón 01000000
+image::images/prbc_0705.png[Paso de validación 3]
+
+El hash256 de esta transacción modificada se interpreta como un entero big-endian para producir _z_.
+El código para convertir la transacción modificada en _z_ tiene el siguiente aspecto:
+
+[fuente,python]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo3]
+----
+
+Ahora que tenemos nuestro _z_, podemos tomar la clave pública en formato SEC y la firma en formato DER del ScriptSig para verificar la firma:
+
+[fuente,python]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo4]
+----
+
+Podemos codificar este proceso de validación de la transacción en un método para `Tx`.
+Afortunadamente, el motor de Script ya puede manejar la verificación de la firma (ver <<capítulo_script>>), así que nuestra tarea aquí es pegar todo.
+Necesitamos _z_, o el hash de la firma, para pasarlo al método `evaluate` y necesitamos combinar el ScriptSig y el ScriptPubKey.
+
+[NOTA]
+Hashing cuadrático
+====
+El algoritmo de hashing de firma es ineficiente y derrochador.
+El _problema cuadrático del hashing_ establece que el tiempo requerido para calcular los hashes de firma aumenta cuadráticamente con el número de entradas en una transacción.
+Específicamente, no sólo aumentará el número de operaciones hash256 para calcular _z_ por cada entrada, sino que además, la longitud de la transacción aumentará, ralentizando cada operación hash256 porque el hash de firma completo tendrá que ser calculado de nuevo para cada entrada.
+
+Esto fue particularmente obvio con la mayor transacción minada hasta la fecha:
+
+----
+bb41a757f405890fb0f5856228e23b715702d714d59bf2b1feb70d8b2
+b4e3e08
+----
+
+Esta transacción tenía 5.569 entradas y 1 salida y muchos mineros tardaron más de un minuto en validarla, ya que los hashes de la firma de la transacción eran caros de calcular.
+
+Segwit (<<capítulo_segwit>>) soluciona esto con una forma diferente de calcular el hash de la firma, que se especifica en
+====
+
+include::code-ch07/answers.py[tag=exercise1,indent=0]
+
+include::code-ch07/answers.py[tag=exercise2,indent=0]
+
+==== Verificar toda la transacción
+
+Ahora que podemos verificar una entrada, la tarea de verificar la transacción completa es sencilla:
+
+[fuente,python]
+----
+clase Tx:
+...
+include::code-ch07/tx.py[tag=source2]
+----
+<1> Nos aseguramos de que no estamos creando dinero.
+<2> Nos aseguramos de que cada entrada tiene un ScriptSig correcto.
+
+Tenga en cuenta que un nodo completo verificaría más cosas, como la comprobación de los gastos dobles y la comprobación de algunas otras reglas de consenso no discutidas en este capítulo (sigops máximo, tamaño de ScriptSig, etc.), pero esto es suficiente para nuestra biblioteca.
+
+=== Creación de transacciones
+
+El código para verificar las transacciones ayudará bastante a crear transacciones.
+Podemos crear transacciones que se ajusten al proceso de verificación.
+Las transacciones que creemos requerirán que la suma de las entradas sea mayor o igual que la suma de las salidas.
+Del mismo modo, las transacciones que creemos requerirán un ScriptSig que, al combinarse con el ScriptPubKey, será válido.
+
+Para crear una transacción, necesitamos al menos una salida que hayamos recibido.
+Es decir, necesitamos una salida del conjunto UTXO cuya ScriptPubKey podamos desbloquear.
+La gran mayoría de las veces, necesitamos una o más claves privadas que se correspondan con las claves públicas que están cifradas en la ScriptPubKey.
+
+El resto de este capítulo se ocupará de crear una transacción cuyas entradas estén bloqueadas por p2pkh ScriptPubKeys.
+
+==== Construir la transacción
+
+La construcción de una transacción requiere responder a algunas preguntas básicas:
+
+1. ¿Dónde queremos que vayan los bitcoins?
+2. ¿Qué UTXOs podemos gastar?
+3. ¿Con qué rapidez queremos que esta transacción llegue a la blockchain?
+
+Utilizaremos testnet para este ejemplo, aunque esto puede aplicarse fácilmente a mainnet.
+
+La primera pregunta es sobre cuánto queremos pagar a quién.
+Podemos pagar a una o varias direcciones.
+En este ejemplo, pagaremos 0,1 bitcoins de testnet (tBTC) a `mnrVtF8DWjMu839VW3rBfgYaAfKk8983Xf`.
+
+La segunda pregunta se refiere a lo que tenemos en la cartera.
+¿Qué tenemos disponible para gastar?
+En este ejemplo, tenemos una salida denotada por un ID de transacción y un índice de salida:
+
+----
+0d6fe5213c0b3291f208cba8bfb59b7476dffacc4e5cb66f6eb20a080843a299:13
+----
+
+[role="pagebreak-before"]
+Cuando vemos esta salida en un explorador de bloques de testnet (<<utxo_que_se_gastan>>), podemos ver que nuestra salida vale 0,44 tBTC.
+
+[[utxo_que_gastamos]]
+.UTXO que estamos gastando
+image::images/prbc_0706.png[Transacción vista en la blockchain]
+
+Como esto es más de 0,1 tBTC, querremos enviarnos el resto a nosotros mismos.
+Aunque generalmente es una mala práctica de privacidad y seguridad reutilizar direcciones, enviaremos los bitcoins de vuelta a `mzx5YhAH9kNHtcN481u6WkjeHjYtVeKVh2` para facilitar la construcción de la transacción.
+
+Por qué la reutilización de direcciones es una mala idea
+[ADVERTENCIA]
+====
+En el <<capítulo_script>>, vimos cómo p2pk era inferior a p2pkh, en parte porque sólo estaba protegido por ECDSA.
+Por otro lado, p2pkh también está protegido por sha256 y ripemd160.
+Sin embargo, como la blockchain es pública, una vez que gastamos de una ScriptPubKey correspondiente a nuestra dirección, revelamos nuestra clave pública como parte de la ScriptSig.
+Una vez que hemos revelado esa clave pública, sha256 y ripemd160 ya no nos protegen, ya que el atacante conoce la clave pública y no tiene que adivinarla.
+
+En el momento de escribir este artículo, todavía estamos protegidos por el problema del registro discreto, que es poco probable que se rompa pronto.
+Sin embargo, desde el punto de vista de la seguridad, es importante entender por qué estamos protegidos.
+
+La otra razón para no reutilizar las direcciones es la privacidad.
+Tener una única dirección para todas nuestras transacciones significa que la gente puede relacionar nuestras transacciones.
+Si, por ejemplo, compramos algo privado (digamos, un medicamento para tratar alguna enfermedad que no queremos que otros conozcan) y gastamos otra salida con la misma ScriptPubKey para una donación a alguna organización benéfica, la organización benéfica y el vendedor de medicamentos podrían identificar que hemos hecho negocios con el otro.
+
+Las fugas de privacidad tienden a convertirse en agujeros de seguridad con el tiempo.
+====
+
+La tercera pregunta se refiere realmente a las tasas.
+Si queremos que la transacción esté en la blockchain más rápido, tendremos que pagar más tasas; si no nos importa esperar, podemos pagar menos.
+En nuestro caso, utilizaremos 0,01 tBTC como tarifa.
+
+Estimación de la tasa
+[NOTA]
+====
+La estimación de las tarifas se realiza por bytes.
+Si su transacción es de 600 bytes, tendrá el doble de tasas que una transacción de 300 bytes.
+Esto se debe a que el espacio de los bloques es limitado y las transacciones más grandes ocupan más espacio.
+Este cálculo ha cambiado un poco desde Segwit (ver <<capítulo_segwit>>), pero el principio general todavía se aplica.
+Queremos pagar lo suficiente por cada byte para que los mineros estén motivados para incluir nuestra transacción lo antes posible.
+
+Cuando los bloques no están llenos, casi cualquier cantidad por encima del límite de retransmisión por defecto (1 satoshi/byte) es suficiente para que se incluya una transacción.
+Cuando los bloques están llenos, esto no es algo fácil de estimar.
+Hay múltiples maneras de estimar las tasas, incluyendo:
+
+* Observar varios niveles de tasas y estimar la probabilidad de inclusión basándose en bloques anteriores y en los mempools del momento.
+* Observando el mempool actual y añadiendo una tasa que corresponda aproximadamente a una incentivación económica suficiente
+* Optar por una tasa fija
+
+Muchos monederos utilizan diferentes estrategias, y este es un área de investigación activa.
+====
+
+==== Realizar la transacción
+
+Tenemos un plan para una nueva transacción con una entrada y dos salidas.
+Pero primero, veamos otras herramientas que necesitaremos.
+
+Necesitamos una manera de tomar una dirección y obtener el hash de 20 bytes de ella.
+Esto es lo contrario de codificar una dirección, así que llamamos a la función `decode_base58`:
+
+[fuente,python]
+----
+include::code-ch07/helper.py[tag=source1]
+----
+<1> Obtenemos qué número está codificado en esta dirección Base58.
+<2> Una vez que tenemos el número, lo convertimos a bytes big-endian.
+<3> El primer byte es el prefijo de red y los últimos 4 son la suma de comprobación.
+Los 20 del medio son el hash real de 20 bytes (también conocido como hash160).
+
+También necesitamos una forma de convertir el hash de 20 bytes en una ScriptPubKey.
+Llamamos a esta función `p2pkh_script` ya que estamos convirtiendo el hash160 en un p2pkh:
+
+[fuente,python]
+----
+include::code-ch07/script.py[tag=source1]
+----
+
+Tenga en cuenta que `0x76` es `OP_DUP`, `0xa9` es `OP_HASH160`, `h160` es un elemento de 20 bytes, `0x88` es `OP_EQUALVERIFY`, y `0xac` es `OP_CHECKSIG`.
+Este es el conjunto de comandos p2pkh ScriptPubKey de <<chapter_script>>.
+
+Dadas estas herramientas, podemos proceder a la creación de transacciones:
+
+[fuente,pycon]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo5]
+----
+<1> La cantidad debe estar en satoshis; dado que hay 100.000.000 satoshis por BTC, tenemos que multiplicar y convertir a un entero.
+<2> Tenemos que designar qué red buscar usando el pase `testnet=True`:[<span class="keep-together">argumento</span>].
+
+Hemos creado la transacción real, pero todos los ScriptSig de esta transacción están actualmente vacíos. El siguiente paso es rellenarlo.
+
+==== Firmar la transacción
+
+La firma de la transacción podría ser complicada, pero sabemos cómo obtener el hash de la firma, _z_, desde antes de este capítulo.
+Si tenemos la clave privada cuya clave pública hash160s al hash de 20 bytes en el ScriptPubKey, podemos firmar _z_ y producir la firma DER:
+
+[fuente,pycon]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo6]
+----
+<1> Sólo necesitamos firmar la primera entrada: sólo hay una.
+Si hubiera varias entradas, tendríamos que firmar cada una de ellas con la clave privada adecuada.
+<2> La firma es en realidad una combinación de la firma DER y el tipo de hash, que es `SIGHASH_ALL` en nuestro caso.
+<3> El ScriptSig de un p2pkh tiene exactamente dos elementos, como vimos en <<capítulo_script>>: la firma y la clave pública del formato SEC.
+<4> Sólo tenemos una entrada que necesitamos firmar, pero si hubiera más, este proceso de creación del ScriptSig habría que hacerlo para cada entrada.
+
+include::code-ch07/answers.py[tag=exercise3,indent=0]
+
+=== Crear sus propias transacciones en testnet
+
+Para crear tu propia transacción, consigue algunas monedas para ti.
+Para ello necesitarás una dirección.
+Si has completado el último ejercicio en <<capítulo_serialización>>, deberías tener tu propia dirección de testnet y tu clave privada.
+Si no lo recuerdas, aquí tienes cómo hacerlo:
+
+[fuente,python]
+----
+include::code-ch07/ejemplos.py[tag=ejemplo7]
+----
+<1> Por favor, utiliza una frase que no sea `Secreto de la canción de Jimmy`.
+
+Una vez que tengas una dirección, puedes obtener algunas monedas de uno de los grifos de testnet que proporcionan monedas de testnet gratuitas para fines de prueba.
+Puedes buscar en Google "testnet bitcoin faucet" para encontrar uno, o utilizar uno de la lista https://en.bitcoin.it/wiki/Testnet#Faucets[en la wiki].
+Mi sitio web, https://faucet.programmingbitcoin.com[], también está actualizado para apuntar a un grifo de testnet que funciona.
+Introduce tu nueva dirección de testnet en cualquiera de estos grifos para conseguir algunas monedas de testnet.
+
+Después de recibir algunas monedas, gástalas usando esta biblioteca.
+Este es un gran logro para un desarrollador de Bitcoin en ciernes, así que tómate un tiempo para completar estos ejercicios.
+
+include::code-ch07/answers.py[tag=exercise4,indent=0]
+
+include::code-ch07/answers.py[tag=exercise5,indent=0]
+
+=== Conclusión
+
+Hemos validado con éxito las transacciones existentes en la cadena de bloques, ¡y también has creado tus propias transacciones en testnet!
+Esto es un gran logro, y deberías estar orgulloso.
+
+El código que tenemos hasta ahora hará p2pkh y p2pk.
+En el próximo capítulo, pasaremos a un contrato inteligente más avanzado, p2sh.

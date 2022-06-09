@@ -1,0 +1,664 @@
+[[capítulo_guión]]
+
+== Guión
+
+[.lead]
+La capacidad de bloquear y desbloquear monedas es el mecanismo por el cual transferimos bitcoin.
+_Bloquear_ es dar unos bitcoins a alguna entidad.
+_Desbloquear_ es gastar unos bitcoins que has recibido.
+
+En este capítulo examinamos este mecanismo de bloqueo/desbloqueo, que suele llamarse _contrato inteligente_.
+La criptografía de curva elíptica (<<capítulo_criptografía_de_curva_elíptica>>) es utilizada por Script para validar que una transacción fue debidamente autorizada (<<capítulo_tx_parsing>>).
+Script esencialmente permite a las personas demostrar que tienen el derecho de gastar ciertos UTXOs.
+Sin embargo, nos estamos adelantando un poco, así que empecemos con el funcionamiento de Script y sigamos a partir de ahí.
+
+=== Mecánica del Guión
+
+Si está confundido sobre lo que es un contrato inteligente, no se preocupe.
+"Contrato inteligente" es una forma elegante de decir "programable", y el "lenguaje de contrato inteligente" es simplemente un lenguaje de programación.
+En Bitcoin, Script es el lenguaje de contrato inteligente, o el lenguaje de programación utilizado para expresar las condiciones bajo las cuales los bitcoins son pasables:[<span class="keep-together">gastados</span>].
+
+Bitcoin tiene el equivalente digital de un contrato en Script.
+Script es un lenguaje basado en la pila, similar a Forth.
+Es intencionadamente limitado en el sentido de que evita ciertas características.
+Específicamente, Script evita cualquier mecanismo para bucles y por lo tanto no es Turing completo.
+
+[NOTA]
+Por qué Bitcoin no es Turing completo
+====
+La completitud de Turing en un lenguaje de programación significa esencialmente que el programa tiene la capacidad de hacer bucles.
+Los bucles son una construcción útil en la programación, así que puede que se pregunte en este punto por qué Script no tiene la capacidad de hacer bucles.
+
+Hay muchas razones para ello, pero empecemos por la ejecución de programas.
+Cualquiera puede crear un programa Script que cada nodo completo de la red ejecuta.
+Si Script fuera Turing completo, sería posible que el bucle siguiera ejecutándose para siempre.
+Esto haría que los nodos de validación entraran y nunca salieran de ese bucle.
+Esta sería una forma fácil de atacar la red a través de lo que se llamaría un ataque de denegación de servicio (DoS).
+¡Un solo programa Script con un bucle infinito podría hacer caer Bitcoin!
+Esto sería una gran vulnerabilidad sistemática, y la protección contra esta vulnerabilidad es una de las principales razones por las que se evita la integridad de Turing.
+Ethereum, que tiene la integridad de Turing en su lenguaje de contratos inteligentes, Solidity, maneja este problema forzando a los contratos a pagar por la ejecución del programa con algo llamado "gas".
+Un bucle infinito agotará el gas que haya en el contrato porque, por definición, se ejecutará un número infinito de veces.
+
+Otra razón para evitar la integridad de Turing es que los contratos inteligentes con integridad de Turing son muy difíciles de analizar.
+Las condiciones de ejecución de un contrato inteligente con completitud de Turing son muy difíciles de enumerar y, por lo tanto, es fácil crear un comportamiento no deseado, causando errores.
+Los errores en un contrato inteligente significan que las monedas son vulnerables a ser gastadas involuntariamente, lo que significa que los participantes del contrato podrían perder dinero.
+Estos errores no son sólo teóricos: este fue el principal problema en el DAO (Organización Autónoma Descentralizada), un contrato inteligente completo de Turing que terminó con el hard fork de Ethereum Classic.
+====
+
+Las transacciones asignan bitcoins a un _script de bloqueo_.
+El script de bloqueo es lo que se especifica en el campo ScriptPubKey (ver <<capítulo_tx_parsing>>).
+Puedes pensar en esto como una caja de seguridad en la que se deposita un dinero que sólo puede abrir una llave determinada.
+El dinero que hay dentro, por supuesto, sólo puede ser accedido por el propietario que tiene la llave.
+
+El desbloqueo de la caja de seguridad se realiza en el campo ScriptSig (ver <<capítulo_tx_parsing>>); esto demuestra la propiedad de la caja bloqueada, lo que autoriza el gasto de los fondos.
+
+[role="pagebreak-before"]
+=== Cómo funciona la secuencia de comandos
+
+Script es un lenguaje de programación, y como la mayoría de los lenguajes de programación, procesa un comando a la vez.
+Los comandos operan sobre una pila de elementos.
+Hay dos tipos posibles de comandos: elementos y operaciones.
+
+Los elementos son datos.
+Técnicamente, el procesamiento de un elemento empuja ese elemento a la pila. Los elementos son cadenas de bytes de longitud 1 a 520.
+Un elemento típico podría ser una firma DER o una pubkey SEC (<<elements_chap_six>>).
+
+[[elements_chap_six]]
+Elementos
+image::images/prbc_0601.png[Script Elements]
+
+Las operaciones hacen algo a los datos (<<operations_chap_six>>).
+Consumen cero o más elementos de la pila de procesamiento y devuelven cero o más elementos a la pila.
+
+[[operations_chap_six]]
+Operaciones
+image::images/prbc_0602.png[Script Operations]
+
+Una operación típica es `OP_DUP` (<<op_dup_duplica_elemento_superior>>), que duplicará el elemento superior (consumiendo 0) y empujará el nuevo elemento a la pila (empujando 1).
+
+[[op_dup_duplica_el_elemento_de_primera_fase]]
+.OP_DUP duplica el elemento superior
+image::images/prbc_0603.png[OP_DUP]
+
+Después de evaluar todos los comandos, el elemento superior de la pila debe ser distinto de cero para que el script se resuelva como válido.
+No tener elementos en la pila o que el elemento superior sea 0 se resolvería como inválido.
+Resolver como inválido significa que la transacción que incluye el script de desbloqueo no es aceptada en la red.
+
+=== Ejemplo de operaciones
+
+Hay muchas otras operaciones además de `OP_DUP`.
+`OP_HASH160` (<<op_hash160_does_a_sha256_followed_by_ripemd160_to_the_top_element>>) hace un sha256 seguido de un ripemd160 (también conocido como hash160) al elemento superior de la pila (consumiendo 1) y empuja un nuevo elemento a la pila (empujando 1).
+Observa en el diagrama que `y = hash160(x)`.
+
+[[op_hash160_does_a_sha256_followed_by_ripemd160_to_the_top_element]]
+.OP_HASH160 hace un sha256 seguido de ripemd160 al elemento superior
+image::images/prbc_0604.png[OP_HASH160]
+
+Otra operación muy importante es `OP_CHECKSIG` (<<op_checksig_checks_if_the_signature_for_the_pubkey_is_valid_or_not>>).
+`OP_CHECKSIG` consume dos elementos de la pila, siendo el primero la pubkey y el segundo una firma, y examina si la firma es buena para la pubkey dada.
+En caso afirmativo, `OP_CHECKSIG` pone un 1 en la pila; en caso contrario, pone un 0 en la pila.
+
+[[op_checksig_comprueba_si_la_firma_de_la_clave_pública_es_válida_o_no]]
+OP_CHECKSIG comprueba si la firma de la clave pública es válida o no
+image::images/prbc_0605.png[OP_CHECKSIG]
+
+==== Opcodes de codificación
+
+Ahora podemos codificar `OP_DUP`, dada una pila.
+`OP_DUP` simplemente duplica el elemento superior de la pila:
+
+[fuente,python]
+----
+include::code-ch06/op.py[tag=source1]
+...
+OP_CODE_FUNCIONES = {
+...
+    118: op_dup, # <3>
+...
+}
+----
+<1> Tenemos que tener al menos un elemento para duplicar; si no, no podemos ejecutar este opcode.
+<2> Así es como duplicamos el elemento superior de la pila.
+<3> `118 = 0x76`, que es el código para `OP_DUP`.
+
+Tenga en cuenta que devolvemos un booleano con este opcode, como una forma de decir si la operación fue exitosa.
+Una operación fallida falla automáticamente la evaluación del script.
+
+[role="pagebreak-after"]
+Aquí hay otro, para `OP_HASH256`.
+Este opcode consumirá el elemento superior, realizará una operación hash256 en él, y empujará el resultado a la pila:
+
+[fuente,python]
+----
+include::code-ch06/op.py[tag=source2]
+...
+OP_CODE_FUNCIONES = {
+...
+    170: op_hash256,
+...
+}
+----
+
+include::code-ch06/answers.py[tag=exercise1,indent=0]
+
+=== Parsing the Script Fields
+
+Tanto el ScriptPubKey como el ScriptSig se analizan de la misma manera.
+Si el byte está entre `0x01` y `0x4b` (cuyo valor llamamos _n_), leemos los siguientes _n_ bytes como elemento.
+En caso contrario, el byte representa una operación, que tenemos que buscar.
+He aquí algunas operaciones y sus códigos de bytes:
+
+* `0x00` - `OP_0`
+* `0x51` - `OP_1`
+* `0x60` - `OP_16`
+* "0x76" - "OP_DUP
+* "0x93" - "OP_ADD
+* 0xa9 - OP_HASH160
+* 0xac - OP_CHECKSIG
+
+[NOTA]
+Elementos de más de 75 bytes
+====
+Puede que te preguntes qué pasaría si tuvieras un elemento con una longitud superior a `0x4b` (75 en decimal).
+Hay tres opcodes específicos para manejar tales elementos: `OP_PUSHDATA1`, `OP_PUSHDATA2` y `OP_PUSHDATA4`.
+El código `OP_PUSHDATA1` significa que el siguiente byte contiene el número de bytes que necesitamos leer para el elemento.
+OP_PUSHDATA2` significa que los siguientes 2 bytes contienen el número de bytes que necesitamos leer para el elemento.
+OP_PUSHDATA4` significa que los siguientes 4 bytes contienen el número de bytes que necesitamos leer para el elemento.
+
+En la práctica, esto significa que si tenemos un elemento entre 76 y 255 bytes inclusive, usamos `OP_PUSHDATA1` ++<__1 byte de longitud del elemento__>++ ++<__elemento__>++.
+Para cualquier cosa entre 256 bytes y 520 bytes inclusive, usamos `OP_PUSHDATA2` ++<__2 bytes de longitud del elemento en little-endian__>++ ++<__elemento__>++.
+Todo lo que sea mayor de 520 bytes no está permitido en la red, por lo que `OP_PUSHDATA4` es innecesario, aunque `OP_PUSHDATA4` ++<__4 bytes de longitud del elemento en little-endian, pero con valor menor o igual a 520__>++ ++<__elemento__>++ sigue siendo legal.
+
+Es posible codificar un número inferior a 76 usando `OP_PUSHDATA1` o un número inferior a 256 usando `OP_PUSHDATA2` o incluso cualquier número inferior a 521 usando `OP_PUSHDATA4`.
+Sin embargo, estas son consideradas transacciones no estándar, lo que significa que la mayoría de los nodos de Bitcoin (particularmente los que ejecutan el software Bitcoin Core) no las transmitirán.
+====
+
+Hay muchos más opcodes, que están codificados en _op.py_, y la lista completa se puede encontrar en https://en.bitcoin.it/wiki/Script[].
+
+==== Codificación de un parser y serializador de scripts
+
+Ahora que sabemos cómo funciona Script, podemos escribir un analizador de scripts:
+
+[fuente,python]
+----
+include::code-ch06/script.py[tag=source1]
+    ...
+include::code-ch06/script.py[tag=fuente2]
+----
+<1> Cada comando es un opcode a ser ejecutado o un elemento a ser empujado a la pila.
+<2> La serialización del script siempre comienza con la longitud del script completo.
+<3> Parseamos hasta que se consuma la cantidad correcta de bytes.
+<4> El byte determina si tenemos un opcode o un elemento.
+<5> Esto convierte el byte en un entero en Python.
+<6> Para un número entre 1 y 75 inclusive, sabemos que los siguientes +n+ bytes son un pase:[<span class="keep-together">elemento</span>].
+<7> 76 es `OP_PUSHDATA1`, así que el siguiente byte nos dice cuántos bytes hay que leer.
+<8> 77 es `OP_PUSHDATA2`, por lo que los dos siguientes bytes nos dicen cuántos bytes hay que leer.
+<9> Tenemos un opcode que almacenamos.
+<10> El script debería haber consumido exactamente la longitud de bytes que esperábamos; de lo contrario, lanzamos un error.
+
+[role="pagebreak-before"]
+Podemos escribir de forma similar un serializador de scripts:
+
+[fuente,python]
+----
+clase Script:
+...
+include::code-ch06/script.py[tag=source3]
+----
+<1> Si el comando es un entero, sabemos que es un opcode.
+<2> Si la longitud está entre 1 y 75 inclusive, codificamos la longitud como un solo byte.
+<3> Para cualquier elemento con longitud entre 76 y 255, ponemos `OP_PUSHDATA1` primero, luego codificamos la longitud como un solo byte, seguido del elemento.
+<4> Para un elemento con una longitud de 256 a 520, ponemos `OP_PUSHDATA2` primero, luego codificamos la longitud como dos bytes en little endian, seguido del elemento.
+<5> Cualquier elemento de más de 520 bytes no puede ser serializado.
+<6> La serialización del script comienza con la longitud del script completo.
+
+Tenga en cuenta que tanto el analizador como el serializador se utilizaron en <<chapter_tx_parsing>>, para analizar/serializar los campos ScriptSig y ScriptPubKey.
+
+=== Combinación de los campos del guión
+
+El objeto +Script+ representa el conjunto de comandos que requiere ser evaluado.
+Para evaluar un script, necesitamos combinar los campos ScriptPubKey y ScriptSig.
+La caja de seguridad (ScriptPubKey) y el mecanismo de desbloqueo (ScriptSig) se encuentran en transacciones _diferentes_.
+En concreto, la caja de seguridad es donde se reciben los bitcoins, y el script de desbloqueo es donde se gastan los bitcoins.
+La entrada en la transacción de gasto _apunta a la transacción de recepción_.
+Esencialmente, tenemos una situación como <<scriptpubkey_y_scriptsig>>.
+
+[[scriptpubkey_y_scriptsig]]
+Combinación de ScriptPubKey y ScriptSig
+image::images/prbc_0606.png[ScriptPubKey y ScriptSig]
+
+Como el ScriptSig desbloquea un ScriptPubKey, necesitamos un mecanismo por el cual los dos scripts se combinen.
+Para evaluar los dos juntos, tomamos los comandos del ScriptSig y del ScriptPubKey y los combinamos como en <<scriptpubkey_y_scriptsig>>.
+Los comandos del ScriptSig van encima de todos los comandos del ScriptPubKey.
+Las instrucciones se procesan de una en una hasta que no queden comandos por procesar (o el script falle).
+
+==== Codificación del conjunto de instrucciones combinadas
+
+La evaluación de un script requiere que tomemos el ScriptSig y el ScriptPubKey, los combinemos en un único conjunto de comandos y los ejecutemos.
+Para ello, necesitamos una forma de combinar los scripts:
+
+[fuente,python]
+----
+clase Script:
+...
+include::code-ch06/script.py[tag=source4]
+----
+<1> Estamos combinando el conjunto de comandos para crear un nuevo objeto +Script+ combinado.
+
+Utilizaremos esta capacidad para combinar scripts para su evaluación más adelante en este capítulo.
+
+=== Guiones estándar
+
+Hay muchos tipos de scripts estándar en Bitcoin, incluyendo los siguientes:
+
+p2pk:: Pay-to-pubkey
+p2pkh:: Pay-to-pubkey-hash
+p2sh:: Pay-to-script-hash
+p2wpkh:: Pay-to-pubkey-hash
+p2wsh:: Pay-to-witness-script-hash
+
+Las direcciones son plantillas de script conocidas como estas.
+Los monederos saben cómo interpretar varios tipos de direcciones (p2pkh, p2sh, p2wpkh) y crear las ScriptPubKeys apropiadas.
+Todos los ejemplos aquí tienen un tipo particular de formato de dirección (Base58, Bech32) para que los monederos puedan pagarles.
+
+Para mostrar exactamente cómo funciona todo esto, empezaremos con uno de los scripts originales, pay-to-pubkey.
+
+=== p2pk
+
+El pago a la subclave (p2pk) se utilizó en gran medida durante los primeros días de Bitcoin.
+La mayoría de las monedas que se cree que pertenecen a Satoshi están en UTXOs p2pk, es decir, salidas de transacciones cuyas ScriptPubKeys tienen la forma p2pk.
+Hay algunas limitaciones que discutiremos en <<problemasp2pk>>, pero primero, veamos cómo funciona p2pk.
+
+En el "capítulo de criptografía de curva elíptica", aprendimos sobre la firma y la verificación ECDSA.
+Para verificar una firma ECDSA, necesitamos el mensaje, _z_, la clave pública, _P_, y la firma, _r_ y _s_.
+En p2pk, los bitcoins se envían a una clave pública, y el propietario de la clave privada puede desbloquear o gastar los bitcoins creando una firma.
+La ScriptPubKey de una transacción pone los bitcoins asignados bajo el control del propietario de la clave privada.
+
+Especificar a dónde van los bitcoins es el trabajo de la ScriptPubKey-esta es la caja de seguridad que recibe los bitcoins.
+La ScriptPubKey de p2pk tiene el aspecto de <<pay_to_pubkey_p2pk_scriptpubkey>>.
+
+[[pay_to_pubkey_p2pk_scriptpubkey]]
+ScriptPubKey de pago a llave pública (p2pk)
+image::images/prbc_0607.png[P2PK ScriptPubKey]
+
+Fíjate en el `OP_CHECKSIG`, ya que será muy importante.
+El ScriptSig es la parte que desbloquea los bitcoins recibidos.
+La pubkey puede estar comprimida o descomprimida, aunque al principio de la historia de Bitcoin, cuando el p2pk era más prominente, el formato descomprimido era el único que se utilizaba (ver <<capítulo_serialización>>).
+
+En el caso de p2pk, el ScriptSig necesario para desbloquear la ScriptPubKey correspondiente es la firma seguida de un único byte sighash, como se muestra en <<pay_to_pubkey_p2pk_scriptsig>>.
+
+[[pay_to_pubkey_p2pk_scriptsig]]
+ScriptSig de Pago a Llave Pública (p2pk)
+image::images/prbc_0608.png[P2PK ScriptSig]
+
+El ScriptPubKey y el ScriptSig se combinan para hacer un conjunto de comandos que se parece a <<p2pk_combinado>>.
+
+[[p2pk_combinado]]
+.p2pk combinado
+image::images/prbc_0609.png[P2PK Combinado]
+
+Las dos columnas de <<p2pk_start>> son los comandos Script y la pila de elementos.
+Al final del procesamiento, el elemento superior de la pila debe ser distinto de cero para ser considerado un ScriptSig válido.
+Los comandos Script se procesan de uno en uno.
+En <<p2pk_start>>, comenzamos con los comandos tal y como se combinan en <<p2pk_combined>>.
+
+[[p2pk_start]]
+.p2pk start
+image::images/prbc_0610.png[P2PK Start]
+
+El primer comando es la firma, que es un elemento.
+Son datos que se empujan a la pila (<<pspk_step_1>>).
+
+[[pspk_step_1]]
+.p2pk paso 1
+image::images/prbc_0611.png[P2PK Paso 1]
+
+El segundo comando es la pubkey, que también es un elemento.
+De nuevo, se trata de datos que se empujan a la pila (<<pspk_step_2>>).
+
+[[pspk_step_2]]
+.p2pk paso 2
+image::images/prbc_0612.png[P2PK Paso 2]
+
+El programa `OP_CHECKSIG` consume dos comandos de la pila (clave pública y firma) y determina si son válidos para esta transacción.
+`OP_CHECKSIG` pondrá un 1 en la pila si la firma es válida, y un 0 si no lo es.
+Asumiendo que la firma es válida para esta clave pública, tenemos la situación mostrada en <<pspk_step_3>>.
+
+[[pspk_step_3]]
+.p2pk paso 3
+image::images/prbc_0613.png[P2PK Fin 1]
+
+Hemos terminado de procesar todos los comandos de Script, y hemos terminado con un solo elemento en la pila.
+Como el elemento superior es distinto de cero (1 no es definitivamente 0), este script es válido.
+
+Si esta transacción en cambio tuviera una firma inválida, el resultado de `OP_CHECKSIG` sería 0, terminando el procesamiento de nuestro script (como se muestra en <<p2pk_end>>).
+
+[[p2pk_end]]
+.p2pk end
+image::images/prbc_0614.png[P2PK End 2]
+
+Si el elemento superior es 0, el script combinado no es válido y una transacción con este ScriptSig en la entrada no es válida.
+
+El script combinado validará si la firma es válida, pero fallará si la firma no es válida.
+El ScriptSig sólo desbloqueará el ScriptPubKey si la firma es válida para esa clave pública.
+En otras palabras, sólo alguien con conocimiento de la clave privada puede producir un ScriptSig válido.
+
+Por cierto, podemos ver de dónde sacó su nombre ScriptPubKey.
+La clave pública en formato SEC sin comprimir es el comando principal de ScriptPubKey para p2pk (el otro comando es `OP_CHECKSIG`).
+Del mismo modo, ScriptSig se llama así porque el ScriptSig para p2pk tiene la firma DER.
+
+==== Evaluación de guiones de codificación
+
+Ahora codificaremos una forma de evaluar los scripts.
+Esto requiere que vayamos a través de cada comando y evaluemos si el script es válido.
+Lo que queremos hacer es esto:
+
+[fuente,python]
+----
+include::code-ch06/ejemplos.py[tag=ejemplo1]
+----
+<1> La ScriptPubkey de p2pk es la pubkey en formato SEC seguida de `OP_CHECKSIG`, que es `0xac` o 172.
+<2> Podemos hacer esto gracias al método `__add__` que acabamos de crear.
+<3> Queremos evaluar los comandos y ver si el script se valida.
+
+Este es el método que utilizaremos para el conjunto de comandos _combinados_ (combinación del ScriptPubKey de la transacción anterior y el ScriptSig del pase actual:[<span class="keep-together">transacción</span>]):
+
+[fuente,python]
+----
+from op import OP_CODE_FUNCTIONS, OP_CODE_NAMES
+...
+clase Script:
+...
+include::code-ch06/script.py[tag=source5]
+----
+<1> Como la lista de comandos va a cambiar, hacemos una copia.
+<2> Ejecutamos hasta que la lista de comandos esté vacía.
+<3> La función que ejecuta el opcode está en el array `OP_CODE_FUNCTIONS` (por ejemplo,
+`OP_DUP`, `OP_CHECKSIG`, etc.).
+<4> 99 y 100 son `OP_IF` y `OP_NOTIF`, respectivamente.
+Requieren la manipulación del array `cmds` basado en el elemento superior de la pila.
+<5> 107 y 108 son `OP_TOALTSTACK` y `OP_FROMALTSTACK`, respectivamente.
+Mueven elementos de la pila a/desde una pila "alternativa", que llamamos `altstack`.
+<6> 172, 173, 174, y 175 son `OP_CHECKSIG`, `OP_CHECKSIGVERIFY`, `OP_CHECKMULTISIG`, y `OP_CHECKMULTISIGVERIFY`, que requieren el hash de la firma, `z`, del <<capítulo_elíptico_curvo_de_criptografía>> para la validación de la firma.
+<7> Si el comando no es un opcode, es un elemento, así que empujamos ese elemento a la pila.
+<8> Si la pila está vacía al final de procesar todos los comandos, fallamos el script devolviendo `False`.
+<9> Si el elemento superior de la pila es una cadena de bytes vacía (que es como la pila almacena un 0), entonces también fallamos el script devolviendo `False`.
+<10> Cualquier otro resultado significa que el script se ha validado.
+
+[ADVERTENCIA]
+Hacer que la evaluación de los scripts sea segura
+====
+El código que se muestra aquí es un poco tramposo, ya que el script combinado no se ejecuta exactamente así.
+El ScriptSig se evalúa por separado del ScriptPubKey para no permitir que las operaciones del ScriptSig afecten a los comandos del ScriptPubKey.
+
+En concreto, se almacena la pila después de evaluar todos los comandos ScriptSig, y luego se evalúan los comandos ScriptPubkey por sí solos con la pila de la primera ejecución.
+====
+
+
+==== Elementos de la pila bajo el capó
+
+Puede resultar confuso que los elementos de la pila sean a veces números como el 0 o el 1 y otras veces cadenas de bytes como una firma DER o una pubkey SEC.
+Bajo el capó, todos son bytes, pero algunos se interpretan como números para ciertos códigos de operación.
+Por ejemplo, el 1 se almacena en la pila como el byte `01`, el 2 se almacena como el byte `02`, el 999 como el byte `e703`, y así sucesivamente.
+Cualquier cadena de bytes se interpreta como un número little-endian para los códigos operativos aritméticos.
+El entero 0 no se almacena como el byte `00`, sino como la cadena de bytes vacía.
+
+El código en _op.py_ puede aclarar lo que está pasando:
+
+[fuente,python]
+----
+include::code-ch06/op.py[tag=source3]
+----
+
+Los números que se introducen en la pila se codifican en bytes y se decodifican a partir de ellos cuando se necesita el valor numérico.
+
+include::code-ch06/answers.py[tag=exercise2,indent=0]
+
+[[problemasp2pk]]
+=== Problemas con p2pk
+
+El pago por clave pública es intuitivo en el sentido de que hay una clave pública a la que cualquiera puede enviar bitcoins y una firma que sólo puede producir el propietario de la clave privada.
+Esto funciona bien, pero hay algunos problemas.
+
+En primer lugar, las claves públicas son largas.
+Sabemos por <<chapter_serialization>> que los puntos públicos de secp256k1 tienen 33 bytes en formato SEC comprimido y 65 bytes en formato SEC sin comprimir.
+Desafortunadamente, los humanos no pueden interpretar 33 o 65 bytes en bruto fácilmente.
+La mayoría de las codificaciones de caracteres no representan ciertos rangos de bytes, ya que son caracteres de control, nuevas líneas o similares.
+En cambio, el formato SEC suele codificarse en hexadecimal, duplicando la longitud (el hex codifica 4 bits por carácter en lugar de 8).
+Esto hace que los formatos SEC comprimidos y sin comprimir tengan 66 y 130 caracteres, respectivamente, lo que es más grande que la mayoría de los identificadores (su nombre de usuario en un sitio web, por ejemplo, suele tener menos de 20 caracteres).
+Por si fuera poco, las primeras transacciones de Bitcoin no utilizaban las versiones comprimidas, por lo que las direcciones hexadecimales tenían 130 caracteres cada una.
+Esto no es divertido ni fácil de transcribir para la gente, y mucho menos de comunicar por voz.
+
+Dicho esto, los casos de uso originales de p2pk eran los pagos de IP a IP y los resultados de la minería.
+En el caso de los pagos entre IP, las direcciones IP eran consultadas para obtener sus claves públicas; la comunicación de las claves públicas se hacía de máquina a máquina, lo que significaba que la comunicación humana no era necesariamente un problema.
+El uso para las salidas de la minería tampoco requiere comunicación humana.
+Por cierto, este sistema de pago de IP a IP se eliminó gradualmente porque no es seguro y es propenso a los ataques del hombre en el medio.
+
+¿Por qué Satoshi utilizó el formato SEC sin comprimir?
+****
+Parece que el formato SEC sin comprimir no tiene sentido para Bitcoin, dado que el espacio de los bloques es escaso. Entonces, ¿por qué lo usó Satoshi?
+Satoshi utilizaba la biblioteca OpenSSL para realizar las conversiones del formato SEC, y la biblioteca OpenSSL en el momento en que Satoshi escribió Bitcoin (alrededor de 2008) no documentaba muy bien el formato comprimido.
+Se especula que esta es la razón por la que Satoshi utilizó el formato SEC sin comprimir.
+
+Cuando Pieter Wuille descubrió que el formato SEC comprimido existía en OpenSSL, más gente empezó a utilizar el formato SEC comprimido en Bitcoin.
+****
+
+En segundo lugar, la longitud de las claves públicas causa un problema más sutil: como hay que mantenerlas alrededor e indexarlas para ver si las salidas son gastables, el conjunto UTXO se hace más grande.
+Esto requiere más recursos por parte de los nodos completos.
+
+Tercero, como estamos almacenando las claves públicas en el campo ScriptPubKey, son conocidas por todos.
+Eso significa que si algún día se rompe ECDSA, estas salidas podrían ser robadas. Por ejemplo, la computación cuántica tiene el potencial de reducir los tiempos de cálculo significativamente para RSA y ECDSA, por lo que tener algo más para proteger estas salidas sería más seguro. Sin embargo, esto no es una amenaza muy grande ya que ECDSA se utiliza en un montón de aplicaciones además de Bitcoin y romperlo afectaría a todas esas cosas también.
+
+=== Resolver los problemas con p2pkh
+
+Pay-to-pubkey-hash (p2pkh) es un formato de script alternativo que tiene dos ventajas clave sobre p2pk:
+
+1. Las direcciones son más cortas.
+2. Además está protegido por sha256 y ripemd160.
+
+Las direcciones son más cortas porque utiliza los algoritmos de hashing sha256 y ripemd160.
+Hacemos ambos en sucesión y lo llamamos hash160.
+El resultado de hash160 es de 160 bits o 20 bytes, que se codifican en una dirección.
+
+El resultado es lo que puede haber visto en la red Bitcoin y codificado en <<capítulo_serialización>>:
+
+----
+1PMycacnJaSqwwJqjawXBErnLsZ7RkXUAs
+----
+
+Esta dirección se codifica en 20 bytes que se ven así en hexadecimal:
+
+----
+f54a5851e9372b87810a8e60cdd2e7cfd80b6e31
+----
+
+Estos 20 bytes son el resultado de hacer una operación hash160 en esta clave pública SEC (comprimida):
+
+----
+0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352
+----
+
+Dado que p2pkh es más corto y más seguro, el uso de p2pk disminuyó significativamente después de 2010, aunque sigue siendo totalmente compatible hoy en día.
+
+==== p2pkh
+
+Pay-to-pubkey-hash se utilizó durante los primeros días de Bitcoin, aunque no tanto como p2pk.
+
+El p2pkh ScriptPubKey, o script de bloqueo, tiene el aspecto de <<pago_a_pubkey_hash_p2pkh_scriptpubkey>>.
+
+[[pay_to_pubkey_hash_p2pkh_scriptpubkey]]
+ScriptPubKey de pago a llave pública (p2pkh)
+image::images/prbc_0615.png[P2PKH ScriptPubKey]
+
+Al igual que p2pk, `OP_CHECKSIG` está aquí y `OP_HASH160` hace su aparición.
+A diferencia de p2pk, la pubkey SEC no está aquí, pero sí un hash de 20 bytes.
+También hay un nuevo opcode aquí: `OP_EQUALVERIFY`.
+
+El ScriptSig de p2pkh, o script de desbloqueo, tiene el aspecto de <<pay_to_pubkey_hash_p2pkh_scriptsig>>.
+
+[[pay_to_pubkey_hash_p2pkh_scriptsig]]
+Pago-a-la-clave-hash (p2pkh) ScriptSig
+image::images/prbc_0616.png[P2PKH ScriptSig]
+
+Al igual que p2pk, ScriptSig tiene la firma DER.
+A diferencia de p2pk, la ScriptSig también tiene la pubkey SEC.
+La principal diferencia entre las ScriptSigs de p2pk y p2pkh es que la pubkey SEC ha pasado de la ScriptPubKey a la ScriptSig.
+
+El ScriptPubKey y el ScriptSig se combinan para formar una lista de comandos que se parece a <<p2pkh_combinado>>.
+
+[[p2pkh_combinado]]
+.p2pkh combinado
+image::images/prbc_0617.png[P2PKH Combinado]
+
+En este punto, el script se procesa un comando a la vez.
+Comenzamos con los comandos como se combinan en <<p2pkh_start>>.
+
+[[p2pkh_start]]
+.p2pkh start
+image::images/prbc_0618.png[P2PKH Start]
+
+Los dos primeros comandos son elementos, por lo que se empujan a la pila (<<p2pkh_step_1>>).
+
+[[p2pkh_step_1]]
+.p2pkh paso 1
+image::images/prbc_0619.png[P2PKH Paso 1]
+
+`OP_DUP` duplica el elemento superior, por lo que la pubkey se duplica (<<p2pkh_step_2>>).
+
+[[p2pkh_paso_2]]
+.p2pkh paso 2
+image::images/prbc_0620.png[P2PKH Paso 2]
+
+`OP_HASH160` toma el elemento superior y realiza la operación hash160 sobre él (sha256 seguido de ripemd160), creando un hash de 20 bytes (<<p2pkh_step_3>>).
+
+[[p2pkh_paso_3]]
+.p2pkh paso 3
+image::images/prbc_0621.png[P2PKH Paso 3]
+
+El hash de 20 bytes es un elemento y se empuja a la pila (<<p2pkh_step_4>>).
+
+[[p2pkh_paso_4]]
+.p2pkh paso 4
+image::images/prbc_0622.png[P2PKH Paso 4]
+
+Ahora estamos en `OP_EQUALVERIFY`.
+Este opcode consume los dos elementos superiores y comprueba si son iguales.
+Si son iguales, el script continúa la ejecución.
+Si no son iguales, el script se detiene inmediatamente y falla.
+Aquí asumimos que son iguales, lo que lleva a <<p2pkh_step_5>>.
+
+[[p2pkh_paso_5]]
+.p2pkh paso 5
+image::images/prbc_0623.png[P2PKH Paso 5]
+
+Ahora estamos exactamente donde estábamos durante la parte `OP_CHECKSIG` del procesamiento de p2pk.
+Una vez más, asumimos que la firma es válida (<<p2pkh_end>>).
+
+[[p2pkh_end]]
+.p2pkh end
+image::images/prbc_0624.png[P2PKH End]
+
+Hay dos maneras en que este script puede fallar.
+Si el ScriptSig proporciona una clave pública que no tiene un hash160 con el hash de 20 bytes en el ScriptPubKey, el script fallará en `OP_EQUALVERIFY` (<<p2pkh_step_4>>).
+La otra condición de fallo es si el ScriptSig tiene una clave pública que coincide con el hash de 20 bytes de la ScriptPubKey, pero tiene una firma no válida.
+Eso terminaría la evaluación combinada del script con un 0, terminando en fracaso.
+
+Por eso llamamos a este tipo de script pay-to-pubkey-_hash_.
+El ScriptPubKey tiene el _hash160_ de 20 bytes de la clave pública y no la clave pública en sí.
+Estamos bloqueando bitcoins a un _hash_ de la clave pública, y el gastador es responsable de revelar la clave pública como parte de la construcción del ScriptSig.
+
+Las principales ventajas son que la ScriptPubKey es más corta (sólo 25 bytes) y que un ladrón no sólo tendría que resolver el problema del registro discreto en ECDSA, sino que también tendría que encontrar la manera de encontrar preimágenes tanto de ripemd160 como de sha256.
+
+=== Los scripts pueden ser construidos arbitrariamente
+
+Tenga en cuenta que un script puede ser cualquier programa arbitrario.
+El script es un lenguaje de contrato inteligente y puede bloquear bitcoins de muchas maneras diferentes.
+<<ejemplo_scriptpubkey>> es un ejemplo de ScriptPubKey.
+
+[[example_scriptpubkey]]
+Ejemplo de ScriptPubKey
+image::images/prbc_0625.png[Ejemplo 1 ScriptPubKey]
+
+<<ejemplo_scriptsig>> es un ScriptSig que desbloqueará el ScriptPubKey de <<ejemplo_scriptpubkey>>.
+
+[[ejemplo_scriptsig]]
+Ejemplo de ScriptSig
+image::images/prbc_0626.png[Ejemplo 1 ScriptSig]
+
+El script combinado se muestra en <<ejemplo_combinado>>.
+
+[[ejemplo_combinado]]
+Ejemplo combinado
+image::images/prbc_0627.png[Ejemplo 1 combinado]
+
+La evaluación de la secuencia de comandos se iniciará como se muestra en <<ejemplo_inicio>>.
+
+[[ejemplo_inicio]]
+Ejemplo de inicio
+image::images/prbc_0628.png[Ejemplo 1 Inicio]
+
+`OP_4` empujará un 4 a la pila (<<ejemplo_paso_1>>).
+
+[[ejemplo_paso_1]]
+.Ejemplo paso 1
+image::images/prbc_0629.png[Ejemplo 1 Paso 1]
+
+`OP_5` empujará igualmente un 5 a la pila (<<ejemplo_paso_2>>).
+
+[[ejemplo_paso_2]]
+.Ejemplo paso 2
+image::images/prbc_0630.png[Ejemplo 1 Paso 2]
+
+`OP_ADD` consumirá los dos primeros elementos de la pila, los sumará y empujará la suma a la pila (<<ejemplo_paso_3>>).
+
+[[ejemplo_paso_3]]
+.Ejemplo paso 3
+image::images/prbc_0631.png[Ejemplo 1 Paso 3]
+
+`OP_9` empujará un 9 a la pila (<<ejemplo_paso_4>>).
+
+[[ejemplo_paso_4]]
+.Ejemplo paso 4
+image::images/prbc_0632.png[Ejemplo 1 Paso 4]
+
+`OP_EQUAL` consumirá dos elementos y empujará un 1 si son iguales y un 0 si no lo son (<<ejemplo_fin>>).
+
+[[ejemplo_final]]
+Ejemplo final
+image::images/prbc_0633.png[Ejemplo 1 Fin]
+
+Tenga en cuenta que el ScriptSig aquí no es particularmente difícil de averiguar y no contiene ninguna firma.
+Como resultado, la ScriptPubKey es vulnerable a ser tomada por cualquiera que pueda resolverla.
+Piensa en esta ScriptPubKey como una caja de seguridad con una cerradura muy endeble que cualquiera puede forzar.
+Es por esta razón que la mayoría de las transacciones tienen un requisito de firma en el ScriptSig.
+
+Una vez que un UTXO ha sido gastado, incluido en un bloque, y asegurado por la prueba de trabajo, las monedas están bloqueadas a una ScriptPubKey diferente y ya no son tan fácilmente gastables.
+Alguien que intente gastar monedas ya gastadas tendría que proporcionar una prueba de trabajo, lo cual es caro (ver <<capítulo_bloques>>).
+
+include::code-ch06/answers.py[tag=exercise3,indent=0]
+
+==== Utilidad de los guiones
+
+El ejercicio anterior fue un poco tramposo, ya que `OP_MUL` ya no está permitido en la red Bitcoin.
+La versión 0.3.5 de Bitcoin deshabilitó un montón de opcodes diferentes (cualquier cosa que tuviera un poco de potencial para crear vulnerabilidades en la red).
+
+Esto es así, ya que la mayor parte de la funcionalidad de Script no se utiliza mucho.
+Desde el punto de vista del mantenimiento del software, esta no es una gran situación ya que el código tiene que ser mantenido a pesar de su falta de uso.
+Simplificar y deshacerse de ciertas capacidades puede ser visto como una forma de hacer Bitcoin más seguro.
+
+Esto contrasta con otros proyectos, que intentan ampliar sus lenguajes de contratos inteligentes, aumentando a menudo la superficie de ataque junto con las nuevas características.
+
+include::code-ch06/answers.py[tag=exercise4,indent=0]
+
+==== Piñata SHA-1
+
+En 2013, Peter Todd creó un script muy similar al del Ejercicio 4 y puso algunos bitcoins en él para crear un incentivo económico para que la gente encontrara colisiones de hash.
+Las donaciones alcanzaron 2,49153717 BTC, y cuando Google encontró realmente una https://security.googleblog.com/2017/02/announcing-first-sha1-collision.html[colisión de hash para SHA-1 en febrero de 2017], este script fue rápidamente canjeado.
+El resultado de la transacción fue de 2,48 BTC, que eran 2.848,88 USD en ese momento.
+
+Peter creó más piñatas para sha256, hash256 y hash160, que añaden incentivos económicos para encontrar colisiones para estas funciones de hashing.
+
+=== Conclusión
+
+Hemos cubierto el Script y su funcionamiento.
+Ahora podemos proceder a la creación y validación de transacciones.

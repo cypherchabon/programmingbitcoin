@@ -1,0 +1,118 @@
+[[capítulo_avanzado]]
+== Temas avanzados y próximos pasos
+
+Si ha llegado hasta aquí, ¡felicidades!
+Ha aprendido mucho sobre el funcionamiento interno de Bitcoin, y esperamos que esté inspirado para aprender mucho más.
+Este libro sólo ha arañado la superficie.
+En este capítulo, repasaremos algunos otros temas que puede querer explorar, cómo arrancar su carrera como desarrollador de Bitcoin, y formas de contribuir a la comunidad.
+
+=== Temas sugeridos para estudiar a continuación
+
+==== Carteras
+
+Crear un monedero es una tarea difícil porque asegurar las claves privadas es muy complicado.
+Dicho esto, hay un montón de normas para crear monederos que pueden ayudar.
+
+===== Carteras Deterministas Jerárquicas
+
+A efectos de privacidad, la reutilización de direcciones es muy mala (ver <<capítulo_tx>>).
+Eso significa que tenemos que crear muchas direcciones.
+Por desgracia, almacenar un secreto diferente para cada dirección generada puede convertirse en un problema de seguridad y de copia de seguridad.
+¿Cómo haces una copia de seguridad de todas ellas de forma segura?
+¿Generas una tonelada de secretos y luego haces una copia de seguridad?
+¿Qué pasa si te quedas sin secretos?
+¿Cómo se hace una copia de seguridad?
+¿Qué sistema puedes utilizar para asegurarte de que las copias de seguridad están actualizadas?
+
+Para combatir este problema, Armory, una de las primeras carteras de Bitcoin, implementó primero carteras _deterministas_.
+La idea de un monedero determinista es que puedes generar una semilla y crear montones y montones de direcciones diferentes con esa semilla.
+Los monederos deterministas de estilo Armory eran geniales, pero la gente quería agrupar las direcciones, así que nació el estándar de monedero _determinista jerárquico_ (HD), BIP0032.
+Los monederos BIP0032 tienen múltiples capas y claves, cada una con una ruta de derivación única.
+Las especificaciones y los vectores de prueba están definidos en el estándar BIP0032, por lo que implementar tu propio monedero HD en testnet es una gran manera de aprender.
+
+Además, BIP0044 define lo que puede significar cada capa de la jerarquía BIP0032 y las mejores prácticas para utilizar una única semilla HD para almacenar monedas de muchas criptodivisas diferentes.
+La implementación de BIP0044 también puede ser una forma de entender mucho mejor la infraestructura de los monederos HD.
+Mientras que muchos monederos (Trezor, Coinomi, etc.) implementan tanto BIP0032 como BIP0044, algunos monederos ignoran BIP0044 por completo y utilizan su propia jerarquía BIP0032 (Electrum y Edge son dos ejemplos).
+
+===== Semillas Mnemónicas
+
+Escribir y transcribir una semilla de 256 bits es una tarea ardua y llena de errores.
+Para combatir esto, el BIP0039 describe una forma de codificar la semilla en un montón de palabras en inglés.
+Hay 2.048 palabras posibles, o 2^11^, lo que significa que cada palabra codifica 11 bits de la semilla.
+La norma define exactamente cómo se traduce el respaldo mnemónico a una semilla BIP0032.
+BIP0039 junto con BIP0032 y BIP0044 es como la mayoría de los monederos implementan la copia de seguridad y la restauración.
+Escribir un monedero de testnet que implemente BIP0039 es otra buena manera de conseguir un gusto por el desarrollo de Bitcoin.
+
+==== Canales de pago y Lightning Network
+
+Los canales de pago son la unidad atómica de la red Lightning, y aprender cómo funcionan es un buen paso.
+Hay muchas formas de implementar los canales de pago, pero el estándar BOLT es la especificación que utilizan los nodos Lightning.
+Las especificaciones están en curso en el momento de escribir este artículo y están disponibles en https://github.com/lightningnetwork/lightning-rfc/.
+
+=== Contribuyendo
+
+Una gran parte de la ética de Bitcoin es contribuir a la comunidad.
+La principal forma de hacerlo es a través de proyectos de código abierto.
+Hay casi demasiados para enumerar, pero aquí hay una muestra:
+
+https://github.com/bitcoin/bitcoin[Bitcoin Core]:: El cliente de referencia
+https://github.com/libbitcoin/libbitcoin[Libbitcoin]:: Una implementación alternativa de Bitcoin en C++
+https://github.com/btcsuite/btcd[btcd]:: Una implementación de Bitcoin basada en Golang
+https://github.com/bcoin-org/bcoin[Bcoin]:: Una implementación de Bitcoin basada en JavaScript, mantenida por purse.io
+https://github.com/richardkiss/pycoin[pycoin]:: Una biblioteca de Python para Bitcoin
+https://github.com/bitcoinj/bitcoinj[BitcoinJ]:: Una biblioteca Java para Bitcoin
+https://github.com/bitcoinjs/bitcoinjs-lib[BitcoinJS]:: Una biblioteca JavaScript para Bitcoin
+https://github.com/btcpayserver/btcpayserver[BTCPay]:: Un motor de procesamiento de pagos de Bitcoin escrito en C#
+
+Contribuir puede ser muy beneficioso por muchas razones, entre ellas, futuras oportunidades de empleo, aprendizaje, obtención de buenas ideas de negocio, etc.
+
+=== Próximos proyectos sugeridos
+
+Si a estas alturas todavía te preguntas qué proyectos te convienen, a continuación te ofrecemos algunas sugerencias.
+
+==== Cartera Testnet
+
+Es difícil subestimar la importancia de la seguridad en Bitcoin.
+Escribir un monedero, incluso en testnet, le ayudará a entender las diversas consideraciones que van a la creación de un monedero.
+La interfaz de usuario, las copias de seguridad, las libretas de direcciones y los historiales de transacciones son sólo algunas de las cosas con las que hay que lidiar al crear un monedero.
+Como esta es la aplicación más popular de Bitcoin, la creación de un monedero le dará mucha información sobre las necesidades de los usuarios.
+
+==== Explorador de bloques
+
+Un proyecto más ambicioso sería escribir tu propio explorador de bloques.
+La clave para hacer tu propio explorador de bloques es almacenar los datos de la cadena de bloques de una manera fácil de acceder.
+Usar una base de datos tradicional como Postgres o MySQL puede ser útil aquí.
+Como Bitcoin Core no tiene índices de direcciones, añadir uno le hará posible permitir la búsqueda de UTXOs y transacciones pasadas por dirección, que es lo que la mayoría de los usuarios desean.
+
+==== Tienda web
+
+Una tienda basada en Bitcoin es otro proyecto que te ayuda a aprender.
+Esto es particularmente apropiado para los desarrolladores web, ya que normalmente saben cómo crear una aplicación web.
+Una aplicación web con un backend de Bitcoin puede ser una forma poderosa de evitar dependencias de terceros para el pago.
+Una vez más, se aconseja comenzar en testnet y utilizar las bibliotecas criptográficamente seguras que están disponibles para conectar la fontanería para los pagos.
+
+==== Biblioteca de utilidades
+
+Una biblioteca de utilidades como la construida en este libro es otra gran manera de aprender más sobre Bitcoin.
+Escribir la serialización BIP0143 para el hash de la firma de Segwit, por ejemplo, puede ser instructivo para acostumbrarse a la programación de protocolos.
+Portar el código de este libro a otro lenguaje también sería una gran herramienta de aprendizaje.
+
+==== Encontrar un trabajo
+
+Si estás interesado en profundizar en esta industria, hay un montón de grandes oportunidades para los desarrolladores.
+La clave para demostrar que sabes algo es tener una cartera de proyectos que hayas hecho por tu cuenta.
+Contribuir a un proyecto de código abierto existente o hacer tu propio proyecto te ayudará a que las empresas se fijen en ti.
+Además, programar contra la API de alguna empresa en particular es una gran manera de conseguir una entrevista.
+
+Generalmente, el trabajo local va a ser mucho más fácil de conseguir ya que a las empresas no les gusta el perfil de riesgo de los trabajadores remotos.
+Acude a reuniones locales y haz contactos con la gente que conozcas allí, y los trabajos locales de Bitcoin serán mucho más fáciles de conseguir.
+
+Del mismo modo, el trabajo a distancia requiere que te hagas notar.
+Además de las contribuciones al código abierto, ve a conferencias, haz contactos y crea contenido técnico (vídeos de YouTube, entradas de blog, etc.).
+Todo esto ayudará bastante a hacerse notar y a conseguir un trabajo a distancia.
+
+=== Conclusión
+
+Me alegra que hayas llegado hasta el final.
+Si te apetece, envíame notas sobre tu progreso, ¡me encantaría saber de ti!
+Puedes ponerte en contacto conmigo en jimmy@programmingblockchain.com.

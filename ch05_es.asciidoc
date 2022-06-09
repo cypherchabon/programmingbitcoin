@@ -1,0 +1,429 @@
+[[chapter_tx_parsing]]
+
+== Transacciones
+
+[.lead]
+Las transacciones son el corazón de Bitcoin.
+Las transacciones, simplemente, son transferencias de valor de una entidad a otra.
+Veremos en <<chapter_script>> cómo las "entidades" en este caso son realmente contratos inteligentes-pero nos estamos adelantando.
+Veamos primero qué son las transacciones en Bitcoin, qué aspecto tienen y cómo se analizan.
+
+=== Componentes de la transacción
+
+A alto nivel, una transacción sólo tiene cuatro componentes.
+Estos son:
+
+1. Versión
+2. Entradas
+3. Salidas
+4. Tiempo de bloqueo
+
+Una visión general de estos campos puede ser útil.
+La versión indica qué características adicionales utiliza la transacción, las entradas definen qué bitcoins se están gastando, las salidas definen a dónde van los bitcoins, y el tiempo de bloqueo define cuándo empieza a ser válida esta transacción.
+Revisaremos cada componente en profundidad.
+
+<<transaction_components_version_inputs_output_locktime>> muestra un volcado hexadecimal de una transacción típica que muestra qué partes son.
+
+[[transaction_components_version_inputs_output_locktime]]
+Componentes de la transacción: versión, entradas, salidas y tiempo de bloqueo
+image::images/prbc_0501.png[Versión de la transacción entradas salidas y tiempo de bloqueo]
+
+Las partes resaltadas de forma diferente representan la versión, las entradas, las salidas y el tiempo de bloqueo, respectivamente.
+
+Con esto en mente, podemos empezar a construir la clase de transacción, que llamaremos `Tx`:
+
+[fuente,python]
+----
+include::code-ch05/tx.py[tag=source1]
+----
+<1> Entrada y salida son términos muy genéricos, por lo que especificamos qué tipo de entradas son.
+Más adelante definiremos los tipos de objetos específicos.
+<2> Necesitamos saber en qué red está esta transacción para poder validarla completamente.
+<3> El `id` es lo que usan los exploradores de bloques para buscar transacciones.
+Es el hash256 de la transacción en formato hexadecimal.
+<4> El hash es el hash256 de la serialización en little-endian.
+Ten en cuenta que todavía no tenemos el método `serialize`; así que hasta que lo tengamos, esto no funcionará.
+
+El resto de este capítulo se ocupará de analizar las transacciones.
+Podríamos, en este punto, escribir código como este:
+
+[fuente,python]
+----
+clase Tx:
+    ...
+
+    @classmethod # <1>
+    def parse(cls, serialización):
+        versión = serialización[0:4] # <2>
+	...
+----
+<1> Este método tiene que ser un método de clase ya que la serialización devolverá una nueva instancia de un objeto `Tx`.
+<2> Asumimos aquí que la variable `serialización` es un array de bytes.
+
+Esto podría funcionar, pero la transacción puede ser muy grande.
+Idealmente, queremos ser capaces de parsear desde un _stream_ en su lugar.
+Esto nos permitirá no necesitar toda la transacción serializada antes de empezar a parsear, y eso nos permite fallar antes y ser más eficientes.
+Así, el código para parsear una transacción se verá más como esto:
+
+[fuente,python]
+----
+clase Tx:
+    ...
+
+    @classmethod
+    def parse(cls, stream):
+        versión_serializada = stream.read(4) # <1>
+	...
+----
+<1> El método `read` nos permitirá parsear sobre la marcha ya que no tendremos que esperar a la E/S.
+
+Esto es ventajoso desde el punto de vista de la ingeniería, ya que el flujo puede ser una conexión de socket en la red o un manejador de archivo.
+Podemos empezar a analizar el flujo de inmediato en lugar de esperar a que se transmita o se lea todo primero.
+Nuestro método será capaz de manejar cualquier tipo de flujo y devolver el objeto `Tx` que necesitamos.
+
+=== Versión
+
+Cuando se ve un número de versión en algo (<<version_chap_five>> muestra un ejemplo), está destinado a dar al receptor información sobre lo que se supone que representa la cosa versionada.
+Si, por ejemplo, usted está ejecutando Windows 3.1, eso es un número de versión que es muy diferente de Windows 8 o Windows 10.
+Podrías especificar sólo "Windows", pero especificar el número de versión después del sistema operativo te ayuda a saber qué características tiene y con qué API puedes programar.
+
+[[version_chap_five]]
+.Versión
+image::images/prbc_0502.png[Version]
+
+Del mismo modo, las transacciones de Bitcoin tienen números de versión.
+En el caso de Bitcoin, la versión de la transacción es generalmente 1, pero hay casos en los que puede ser 2 (las transacciones BIP0112 requieren el uso de una versión > 1).
+
+Puede notar aquí que el valor real en hexadecimal es `01000000`, que no parece 1.
+Sin embargo, interpretado como un entero little-endian, este número es en realidad 1 (recuerde la discusión del <<capítulo_serialización>>).
+
+include::code-ch05/answers.py[tag=exercise1,indent=0]
+
+=== Entradas
+
+Cada entrada apunta a una salida de una transacción anterior (véase <<inputs_chap_five>>).
+Este hecho requiere más explicación, ya que no es intuitivamente obvio al principio.
+
+[[inputs_chap_five]]
+Entradas
+image::images/prbc_0503.png[Entradas]
+
+Las entradas de Bitcoin son salidas de gasto de una transacción anterior.
+Es decir, es necesario haber recibido bitcoins primero para gastar algo.
+Esto tiene un sentido intuitivo.
+No puedes gastar dinero a menos que hayas recibido dinero primero.
+Las entradas se refieren a los bitcoins que te pertenecen. Cada entrada necesita dos cosas:
+
+* Una referencia a los bitcoins que has recibido previamente
+* Prueba de que son tuyos para gastar
+
+La segunda parte utiliza ECDSA (<<capítulo_curva_elíptica_criptografía>>).
+No quieres que la gente pueda falsificar esto, por lo que la mayoría de las entradas contienen firmas que sólo el propietario de la clave privada puede producir.
+
+El campo de entradas puede contener más de una entrada.
+Esto es análogo a utilizar un solo billete de 100 dólares para pagar una comida de 70 dólares, o bien 50 dólares y 20 dólares.
+El primero sólo requiere una entrada ("billete"); el segundo requiere dos.
+Hay situaciones en las que podría haber incluso más entradas.
+En nuestra analogía, podríamos pagar una comida de 70 dólares con 14 billetes de 5 dólares, o incluso con 7.000 céntimos.
+Esto sería análogo a 14 entradas o 7.000 entradas.
+
+El número de entradas es la siguiente parte de la operación, como se destaca en <<número_de_entradas>>.
+
+[[número_de_entradas]]
+Número de entradas
+image::images/prbc_0504.png[Entradas]
+
+Podemos ver que el byte es en realidad `01`, lo que significa que esta transacción tiene una entrada.
+Aquí puede ser tentador asumir que siempre es un solo byte, pero no es así.
+Un solo byte tiene 8 bits, por lo que cualquier cosa de más de 255 entradas no será expresable en un solo byte.
+
+Aquí es donde entran los _varints_.
+Varint es la abreviatura de _variable integer_, que es una forma de codificar un entero en bytes que van de 0 a 2^64^ - 1.
+Podríamos, por supuesto, reservar siempre 8 bytes para el número de entradas, pero eso sería mucho espacio desperdiciado si esperamos que el número de entradas sea relativamente pequeño (digamos, menos de 200).
+Este es el caso del número de entradas en una transacción normal, por lo que el uso de varints ayuda a ahorrar espacio.
+Puede ver cómo funcionan en la siguiente barra lateral.
+
+[role="pagebreak-before less_space"]
+.Varints
+****
+Los enteros variables funcionan según estas reglas:
+
+* Si el número es inferior a 253, codifique ese número como un solo byte (por ejemplo, 100 -> `0x64`).
+* Si el número está entre 253 y 2^16^ - 1, comience con el byte 253 (`fd`) y luego codifique el número en 2 bytes en little-endian (por ejemplo, 255 -> `0xfdff00`, 555 -> `0xfd2b02`).
+* Si el número está entre 2^16^ y 2^32^ - 1, comience con el byte 254 (`fe`) y luego codifique el número en 4 bytes en little-endian (por ejemplo, 70015 -> `0xfe7f110100`).
+* Si el número está entre 2^32^ y 2^64^ - 1, comience con el byte 255 (`ff`) y luego codifique el número en 8 bytes en little-endian (por ejemplo, 18005558675309 -> `0xff6dc7ed3e60100000`).
+
+Se utilizarán dos funciones de _helper.py_ para analizar y serializar los campos varint:
+
+[fuente,python]
+----
+include::code-ch05/helper.py[tag=source1]
+----
+
+`read_varint` leerá de un flujo y devolverá el entero que fue codificado.
+`encode_varint` hará lo contrario, es decir, tomará un entero y devolverá la representación en bytes de varint.
+****
+
+Cada entrada contiene cuatro campos.
+Los dos primeros campos apuntan a la salida de la transacción anterior y los dos últimos campos definen cómo se puede gastar la salida de la transacción anterior.
+Los campos son los siguientes:
+
+* ID de la transacción anterior
+* Índice de la transacción anterior
+* ScriptSig
+* Secuencia
+
+Como se acaba de explicar, cada entrada tiene una referencia a la salida de una transacción anterior.
+El ID de la transacción anterior es el hash256 del contenido de la transacción anterior.
+Esto define de forma única la transacción anterior, ya que la probabilidad de una colisión de hash es imposiblemente baja.
+
+Como veremos, cada transacción tiene que tener al menos una salida, pero puede tener muchas.
+Por lo tanto, tenemos que definir exactamente qué salida _dentro de una transacción_ estamos gastando, lo que se captura en el índice de la transacción anterior.
+
+Tenga en cuenta que el ID de la transacción anterior es de 32 bytes y que el índice de la transacción anterior es de 4 bytes.
+Ambos están en little-endian.
+
+El ScriptSig tiene que ver con el lenguaje de contratos inteligentes de Bitcoin, Script, discutido más a fondo en <<capítulo_script>>.
+Por ahora, piense en el ScriptSig como si abriera una caja cerrada, algo que sólo puede hacer el propietario de la salida de la transacción.
+El campo ScriptSig es un campo de longitud variable, no un campo de longitud fija como la mayoría de lo que hemos visto hasta ahora.
+Un campo de longitud variable requiere que definamos exactamente la longitud del campo, por lo que el campo va precedido de un varint que nos indica su longitud.
+
+La secuencia fue originalmente pensada como una forma de hacer lo que Satoshi llamó "operaciones de alta frecuencia" con el campo locktime (ver <<sequence_and_locktime>>), pero actualmente se utiliza con Replace-By-Fee (RBF) y `OP_CHECKSEQUENCEVERIFY`.
+La secuencia también está en little-endian y ocupa 4 bytes.
+
+Los campos de la entrada tienen el aspecto de <<los_campos_de_una_entrada_anterior_tx_previa_index_sig_y_secuencia>>.
+
+[[los_campos_de_una_entrada_anterior_tx_índice_anterior_y_secuencia]]
+Los campos de una entrada: ID de la transacción anterior, índice anterior, ScriptSig y secuencia
+image::images/prbc_0505.png[Campos de entrada]
+
+[[secuencia_y_tiempo_de_bloqueo]]
+Secuencia y tiempo de bloqueo
+****
+Originalmente, Satoshi quería que los campos de secuencia y locktime se utilizaran para algo llamado "operaciones de alta frecuencia".
+Lo que Satoshi imaginó fue una manera de hacer pagos de ida y vuelta con otra parte sin hacer muchas transacciones en la cadena.
+Por ejemplo, si Alice paga a Bob _x_ bitcoins por algo y luego Bob paga a Alice _y_ bitcoins por otra cosa (digamos, si _x_ > _y_), entonces Alice puede simplemente pagar a Bob _x_ - _y_, en lugar de que haya dos transacciones separadas en la cadena.
+Podríamos hacer lo mismo si Alice y Bob tuvieran 100 transacciones entre ellos, es decir, comprimir un montón de transacciones en una sola.
+
+Esa es la idea que tenía Satoshi: un mini-libro que se actualiza continuamente entre las dos partes implicadas y que se liquida en la cadena.
+La intención de Satoshi era utilizar los campos de secuencia y tiempo de bloqueo para actualizar la transacción comercial de alta frecuencia cada vez que se produjera un nuevo pago entre las dos partes.
+La transacción comercial tendría dos entradas (una de Alice y otra de Bob) y dos salidas (una para Alice y otra para Bob).
+La transacción comercial comenzaría con la secuencia en 0 y con un tiempo de bloqueo lejano (digamos, 500 bloques a partir de ahora, por lo que es válida en 500 bloques).
+Esta sería la transacción base en la que Alice y Bob obtienen las mismas cantidades que ponen.
+
+Después de la primera transacción, en la que Alice paga a Bob _x_ bitcoins, la secuencia de cada entrada sería 1.
+Después de la segunda transacción, en la que Bob paga a Alice _y_ bitcoins, la secuencia de cada entrada sería 2.
+Usando este método, podríamos tener muchos pagos comprimidos en una sola transacción en la cadena, siempre y cuando ocurran antes de que el tiempo de bloqueo sea válido.
+
+Desafortunadamente, por muy inteligente que sea esto, resulta que es bastante fácil para un minero hacer trampa.
+En nuestro ejemplo, Bob podría ser un minero; podría ignorar la transacción comercial actualizada con el número de secuencia 2 y minar la transacción comercial con el número de secuencia 1, engañando a Alice con _y_ bitcoins.
+
+Posteriormente se creó un diseño mucho mejor con los "canales de pago", que es la base de la Red Lightning.
+****
+
+[role="pagebreak-before"]
+Ahora que sabemos cuáles son los campos, podemos empezar a crear una clase `TxIn` en Python:
+
+[fuente,python]
+----
+include::code-ch05/tx.py[tag=source2]
+----
+<1> Por defecto se hace un ScriptSig vacío.
+
+Hay que tener en cuenta un par de cosas.
+En primer lugar, no se especifica la cantidad de cada entrada.
+No tenemos ni idea de cuánto se está gastando a menos que lo busquemos en la blockchain para la transacción o transacciones que estamos gastando.
+Además, ni siquiera sabemos si la transacción está desbloqueando la caja correcta, por así decirlo, sin conocer la transacción anterior.
+Cada nodo debe verificar que esta transacción desbloquea la caja correcta y que no gasta bitcoins inexistentes.
+Cómo lo hacemos se discute más a fondo en el <<capítulo_tx>>.
+
+==== Script de análisis
+
+Profundizaremos en cómo se parsea el Script en el <<capítulo_script>>, pero por ahora, aquí está cómo se obtiene un objeto `Script` a partir de hexadecimal en Python:
+
+----
+include::code-ch05/examples.py[tag=ejemplo1]
+----
+<1> La clase `Script` será explorada más a fondo en el <<capítulo_script>>.
+Por ahora, confía en que el método `Script.parse` creará el objeto que necesitamos.
+
+include::code-ch05/answers.py[tag=exercise2,indent=0]
+
+=== Salidas
+
+Como se ha insinuado en la sección anterior, las salidas definen el destino de los bitcoins.
+Cada transacción debe tener una o más salidas.
+¿Por qué habría de tener alguien más de una salida?
+Un intercambio puede agrupar las transacciones, por ejemplo, y pagar a muchas personas a la vez en lugar de generar una única transacción para cada persona que solicite bitcoins.
+
+Al igual que con las entradas, la serialización de las salidas comienza con cuántas salidas hay como varint, como se muestra en <<número_de_salidas>>.
+
+[[número_de_salidas]]
+Número de salidas
+image::images/prbc_0506.png[Salidas]
+
+Cada salida tiene dos campos: cantidad y ScriptPubKey.
+La cantidad es la cantidad de bitcoins que se asigna y se especifica en satoshis, o 1/100.000.000 de un bitcoin.
+Esto nos permite dividir los bitcoins muy finamente, hasta 1/300 de un centavo en términos de USD en el momento de escribir esto.
+El máximo absoluto para la cantidad es el límite asintótico de 21 millones de bitcoins en satoshis, que son 2.100.000.000.000 (2.100 billones) de satoshis.
+Este número es mayor que 2^32^ (4,3 billones más o menos) y, por lo tanto, se almacena en 64 bits, es decir, en 8 bytes.
+La cantidad se serializa en little-endian.
+
+La ScriptPubKey, al igual que la ScriptSig, tiene que ver con el lenguaje de contratos inteligentes de Bitcoin, Script.
+Piensa en la ScriptPubKey como la caja cerrada que sólo puede ser abierta por el titular de la llave.
+Es como una caja fuerte de un solo sentido que puede recibir depósitos de cualquiera, pero que sólo puede ser abierta por el propietario de la caja.
+Exploraremos esto con más detalle en el <<capítulo_script>>.
+Al igual que ScriptSig, ScriptPubKey es un campo de longitud variable y está precedido por la longitud del campo en un varint.
+
+Una salida completa tiene el aspecto de <<campos_de_salida_de_la_cantidad_y_de_la_clave_de_sus_cursos_de_su_index_0>>.
+
+[[campos_de_salida_de_importe_y_clave_de_scriptores_este_está_en_el_índice_0]]
+Un campo de salida completo, mostrando la cantidad y la ScriptPubKey-este está en el índice 0
+image::images/prbc_0507.png[Campos de salida]
+
+.UTXO Set
+****
+UTXO significa _salida de transacción no utilizada_.
+El conjunto de salidas de transacciones no gastadas en un momento dado se denomina _conjunto UTXO_.
+La razón por la que los UTXO son importantes es porque en cualquier momento representan todos los bitcoins que están disponibles para ser gastados.
+En otras palabras, son los bitcoins que están en circulación.
+Todos los nodos de la red deben hacer un seguimiento del conjunto de UTXO, y mantener el conjunto de UTXO indexado hace que la validación de nuevas transacciones sea mucho más rápida.
+
+Por ejemplo, es fácil aplicar una regla de no doble gasto buscando la salida de la transacción anterior en el conjunto UTXO.
+Si la entrada de una nueva transacción utiliza una salida de transacción que no está en el conjunto de UTXO, se trata de un intento de doble gasto o de una salida inexistente y, por tanto, no es válida.
+Tener a mano el conjunto UTXO también es muy útil para validar las transacciones.
+Como veremos en el <<capítulo_script>>, necesitamos buscar el importe y la ScriptPubKey de la salida de la transacción anterior para validar las transacciones, por lo que tener estos UTXOs a mano puede acelerar la validación de las transacciones.
+****
+
+Ahora podemos empezar a codificar la clase `TxOut`:
+
+[fuente,python]
+----
+include::code-ch05/tx.py[tag=source3]
+----
+
+include::code-ch05/answers.py[tag=exercise3,indent=0]
+
+=== Locktime
+
+El tiempo de bloqueo es una forma de retrasar una transacción.
+Una transacción con un locktime de 600.000 no puede entrar en la blockchain hasta el bloque 600.001.
+Esto fue originalmente interpretado como una forma de hacer operaciones de alta frecuencia (ver <<secuencia_y_tiempo_de_bloqueo>>), que resultó ser insegura.
+Si el locktime es mayor o igual a 500.000.000, es una marca de tiempo Unix.
+Si es menor que 500.000.000, es un número de bloque.
+De esta manera, las transacciones pueden ser firmadas pero no pueden ser gastadas hasta que se alcance un determinado punto en el tiempo Unix o la altura del bloque.
+
+Cuando se ignora el tiempo de bloqueo
+[ADVERTENCIA]
+====
+Tenga en cuenta que el tiempo de bloqueo se ignora si los números de secuencia de cada entrada son `ffffff`.
+====
+
+La serialización es en little-endian y 4 bytes (<<locktime>>).
+
+[[locktime]]
+.Locktime
+image::images/prbc_0508.png[Locktime]
+
+El principal problema de utilizar el tiempo de bloqueo es que el receptor de la transacción no tiene la certeza de que la transacción será buena cuando llegue el tiempo de bloqueo.
+Esto es similar a un cheque bancario posfechado, que tiene la posibilidad de rebotar.
+El remitente puede gastar las entradas antes de que la transacción del locktime llegue a la blockchain, invalidando así la transacción en el locktime.
+
+Los usos antes de BIP0065 eran limitados.
+BIP0065 introdujo `OP_CHECKLOCKTIMEVERIFY`, que hace que el tiempo de bloqueo sea más útil al hacer que una salida no se pueda gastar hasta un determinado tiempo de bloqueo.
+
+include::code-ch05/answers.py[tag=exercise4,indent=0]
+
+include::code-ch05/answers.py[tag=exercise5,indent=0]
+
+=== Transacciones de codificación
+
+Hemos analizado la transacción; ahora queremos hacer lo contrario, que es serializar la transacción.
+Vamos a empezar con `TxOut`:
+
+[fuente,python]
+----
+clase TxOut:
+...
+include::code-ch05/tx.py[tag=source4]
+----
+<1> Vamos a serializar el objeto +TxOut+ a un montón de bytes.
+
+A continuación, podemos pasar a `TxIn`:
+
+[fuente,python]
+----
+clase TxIn:
+...
+include::code-ch05/tx.py[tag=source5]
+----
+
+Por último, podemos serializar `Tx`:
+
+[fuente,python]
+----
+clase Tx:
+...
+include::code-ch05/tx.py[tag=source6]
+----
+
+Hemos utilizado los métodos `serialize` de `TxIn` y `TxOut` para serializar `Tx`.
+
+Observe que la tasa de transacción no se especifica en ninguna parte.
+Esto se debe a que la comisión es una cantidad implícita, como se describe en la siguiente sección.
+
+=== Tasa de transacción
+
+Una de las reglas de consenso de Bitcoin es que para cualquier transacción que no sea de coinbase (más sobre las transacciones de coinbase en <<capítulo_bloques>>), la suma de las entradas tiene que ser mayor o igual que la suma de las salidas.
+Te preguntarás por qué las entradas y salidas no pueden ser forzadas a ser iguales.
+Esto se debe a que si cada transacción tuviera un coste cero, no habría ningún incentivo para que los mineros incluyeran transacciones en los bloques (ver <<capítulo_bloques>>).
+Las tarifas son una forma de incentivar a los mineros para que incluyan transacciones.
+Las transacciones que no están en los bloques (las llamadas _transacciones en el mempool_) no forman parte de la cadena de bloques y no son definitivas.
+
+La tasa de transacción es simplemente la suma de las entradas menos la suma de las salidas.
+Esta diferencia es la que se queda el minero.
+Como las entradas no tienen un campo de cantidad, tenemos que buscar la cantidad.
+Para ello es necesario acceder a la cadena de bloques, concretamente al conjunto UTXO.
+Si no estás ejecutando un nodo completo, esto puede ser complicado, ya que ahora necesitas confiar en alguna otra entidad para que te proporcione esta información.
+
+Estamos creando una nueva clase para manejar esto, llamada `TxFetcher`:
+
+[fuente,python]
+----
+include::code-ch05/tx.py[tag=source7]
+----
+<1> Comprobamos que el ID es el que esperamos que sea.
+
+Tal vez se pregunte por qué no obtenemos sólo la salida específica de la transacción y sí la transacción completa.
+Esto es porque no queremos confiar en un tercero.
+Obteniendo la transacción completa, podemos verificar el ID de la transacción (el hash256 de su contenido) y estar seguros de que realmente estamos obteniendo la transacción que pedimos.
+Esto es imposible si no recibimos la transacción completa.
+
+Por qué minimizamos la confianza en terceros
+[ADVERTENCIA]
+====
+Como Nick Szabo escribió elocuentemente en su ensayo seminal https://nakamotoinstitute.org/trusted-third-parties/["Trusted Third Parties are Security Holes"], confiar en terceros para que proporcionen datos correctos no es una buena práctica de seguridad.
+Puede que el tercero se comporte bien ahora, pero nunca se sabe cuándo puede ser hackeado, tener un empleado rebelde o empezar a aplicar políticas que van en contra de sus intereses.
+Parte de lo que hace que Bitcoin sea seguro es _no_ confiar, sino verificar los datos que nos dan.
+====
+
+Ahora podemos crear el método apropiado en `TxIn` para obtener la transacción anterior y los métodos para obtener la cantidad de la transacción anterior y ScriptPubKey (este último para ser utilizado en <<chapter_script>>):
+
+[fuente,python]
+----
+clase TxIn:
+...
+include::code-ch05/tx.py[tag=source8]
+----
+
+==== Cálculo de la tasa
+
+Ahora que tenemos el método `value` en `TxIn` que nos permite acceder a cuántos bitcoins hay en cada entrada de transacción, podemos calcular la tarifa de una transacción.
+
+include::code-ch05/answers.py[tag=exercise6,indent=0]
+
+=== Conclusión
+
+Hemos cubierto exactamente cómo analizar y serializar las transacciones y definido lo que significan los campos.
+Hay dos campos que requieren más explicación, ambos relacionados con el lenguaje de contratos inteligentes de Bitcoin, Script.
+A ese tema vamos en el <<capítulo_script>>.

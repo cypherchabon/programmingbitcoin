@@ -1,0 +1,507 @@
+[[chapter_spv]]
+== Verificación simplificada de pagos
+
+[.lead]
+El único campo de cabecera de bloque que no investigamos mucho en <<capítulo_bloques>> fue la raíz Merkle.
+Para entender qué hace que la raíz Merkle sea útil, primero tenemos que aprender sobre los árboles Merkle y qué propiedades tienen.
+En este capítulo, vamos a aprender exactamente lo que es una raíz de Merkle.
+Esto será motivado por algo llamado _prueba de inclusión_.
+
+=== Motivación
+
+Para un dispositivo que no tiene mucho espacio en el disco, ancho de banda o potencia de cálculo, es caro almacenar, recibir y validar toda la cadena de bloques.
+En el momento de escribir este artículo, la cadena de bloques completa de Bitcoin ocupa alrededor de 200 GB, que es más de lo que muchos teléfonos pueden almacenar; puede ser muy difícil de descargar de forma eficiente y sin duda pondrá a prueba la CPU.
+Si no se puede poner toda la cadena de bloques en el teléfono, ¿qué otra cosa podemos hacer?
+¿Es posible crear un monedero de Bitcoin en un teléfono sin tener todos los datos?
+
+Para cualquier cartera, hay dos escenarios que nos preocupan:
+
+1. Pagar a alguien
+2. Ser pagado por alguien
+
+Si estás pagando a alguien con tu monedero de Bitcoin, es la persona que recibe tus bitcoins la que debe verificar que se le ha pagado.
+Una vez que hayan verificado que la transacción ha sido incluida en un bloque lo suficientemente profundo, la otra parte del intercambio, o el bien o servicio, te será entregado.
+Una vez que hayas enviado la transacción a la otra parte, realmente no hay nada que hacer más que esperar hasta que recibas aquello por lo que estás cambiando los bitcoins.
+
+Sin embargo, a la hora de recibir el pago en bitcoins, tenemos un dilema.
+Si estamos conectados y tenemos la blockchain completa, podemos ver fácilmente cuándo la transacción está en un bloque suficientemente profundo, momento en el que damos a la otra parte nuestros bienes o servicios.
+Pero si no tenemos la blockchain completa, como con un teléfono, ¿qué podemos hacer?
+
+La respuesta está en el campo raíz Merkle de la cabecera de bloque que vimos en <<capítulo_bloques>>.
+Como vimos en el último capítulo, podemos descargar las cabeceras de los bloques y verificar que cumplen las reglas de consenso de Bitcoin.
+En este capítulo vamos a trabajar para obtener una prueba de que una transacción concreta está en un bloque que conocemos.
+Dado que la cabecera del bloque está asegurada por la prueba de trabajo, una transacción con una prueba de inclusión en ese bloque significa, como mínimo, que hubo una buena cantidad de energía gastada para producir ese bloque.
+Esto significa que el coste de engañarte sería al menos el coste de la prueba de trabajo para el bloque.
+El resto de este capítulo trata sobre qué es la prueba de inclusión y cómo verificarla.
+
+=== Árbol de Merkle
+
+Un árbol de Merkle es una estructura informática diseñada para realizar pruebas eficientes de inclusión.
+Los requisitos previos son una lista ordenada de elementos y una función hash criptográfica.
+En nuestro caso, los elementos de la lista ordenada son transacciones en un bloque y la función hash es hash256.
+Para construir el árbol de Merkle, seguimos este algoritmo:
+
+1. Hacer un hash de todos los elementos de la lista ordenada con la función hash proporcionada.
+2. Si hay exactamente 1 hash, hemos terminado.
+3. En caso contrario, si hay un número impar de hashes, duplicamos el último hash de la lista y lo añadimos al final para que tengamos un número par de hashes.
+4. Emparejamos los hashes en orden y hacemos un hash de la concatenación para obtener el nivel padre, que debe tener la mitad de hashes.
+5. Pasamos a &#35;2.
+
+La idea es llegar a un único hash que "represente" toda la lista ordenada.
+Visualmente, un árbol de Merkle se parece a <<merkle_tree_chap_eleven>>.
+
+La fila inferior es lo que llamamos las _hojas_ del árbol.
+Todos los demás nodos, además de las hojas, se llaman _nodos internos_.
+Las hojas se combinan para producir un _nivel padre_ (H~AB~ y H~CD~), y cuando calculamos el nivel padre de éste, obtenemos la raíz de Merkle.
+
+En las siguientes secciones, repasaremos cada una de las partes de este proceso.
+
+[[merkle_tree_chap_eleven]]
+Árbol de Merkle
+image::images/prbc_1101.png[Árbol de Merkle]
+
+[ADVERTENCIA]
+¡Cuidado con los árboles de Merkle!
+====
+Había una vulnerabilidad en Bitcoin 0.4&#8211;0.6 relacionada con la raíz Merkle, que se detalla en CVE-2012-2459.
+Había un vector de denegación de servicio debido a la duplicación del último elemento en los árboles Merkle, lo que hacía que algunos nodos invalidaran bloques aunque fueran válidos.
+====
+
+=== Padre Merkle
+
+Dados dos hashes, producimos otro hash que representa a ambos.
+Como están ordenados, llamaremos a los dos hashes el hash de la _izquierda_ y el hash de la _derecha_.
+El hash de los hashes izquierdo y derecho es lo que llamamos el hash _padre_.
+Para aclarar, esta es la fórmula para el hash padre:
+
+* _H_ = Función hash
+* _P_ = Hash de los padres
+* _L_ = Hash izquierdo
+* _R_ = Hash derecho
+
+++++
+<ul class="simplelist">
+<li><em>P</em>=<em>H</em>(<em>L</em>||<em>R</em>)</li>
+</ul>
+++++
+
+Nótese que el símbolo || denota concatenación.
+
+Así es como podemos codificar este proceso en Python:
+
+----
+include::code-ch11/examples.py[tag=ejemplo1]
+----
+
+La razón por la que hacemos un hash de la concatenación para obtener el padre es porque podemos proporcionar una prueba de inclusión.
+En concreto, podemos demostrar que _L_ está representado en el padre, _P_, revelando _R_.
+Es decir, si queremos una prueba de que _L_ está representado en _P_, el productor de _P_ puede mostrarnos _R_ y hacernos saber que _L_ es el hijo izquierdo de _P_.
+Entonces podemos combinar _L_ y _R_ para producir _P_ y tener la prueba de que _L_ se utilizó para producir _P_.
+Si _L_ no está representado en _P_, poder proporcionar _R_ equivaldría a proporcionar una preimagen de hash, lo que sabemos que es muy difícil.
+Esto es lo que entendemos por una prueba de inclusión.
+
+include::code-ch11/answers.py[tag=exercise1,indent=0]
+
+=== Nivel de los padres de Merkle
+
+Dada una lista ordenada de más de dos hashes, podemos calcular los padres de cada par, o lo que llamamos el _nivel de padres de Merkle_.
+Si tenemos un número par de hashes, esto es sencillo, ya que podemos simplemente emparejarlos en orden.
+Si tenemos un número impar de hashes, entonces tenemos que hacer algo, ya que tenemos un hash solitario al final.
+Podemos resolverlo duplicando el último elemento.
+
+Es decir, para una lista como [A, B, C] podemos añadir C de nuevo para obtener [A, B, C, C].
+Ahora podemos calcular el padre Merkle de A y B y calcular el padre Merkle de C y C para obtener:
+
+++++
+<ul class="simplelist">
+<li>[<em>H</em>(<em>A</em>||<em>B</em>), <em>H</em>(<em>C</em>|<em>C</em>)]</li>
+</ul>
+++++
+
+
+Como el padre Merkle siempre está formado por dos hashes, el nivel del padre Merkle siempre tiene exactamente la mitad del número de hashes, redondeado hacia arriba. Así es como se calcula un nivel padre Merkle:
+
+[fuente,pycon]
+----
+include::code-ch11/ejemplos.py[tag=ejemplo2]
+----
+<1> Añadimos el último hash de la lista, `hashes[-1]`, al final de `hashes` para que la longitud de `hashes` sea par.
+<2> Así es como saltamos de dos en dos en Python.
+La "i" será 0 la primera vez que pase por el bucle, 2 la segunda, 4 la tercera, y así sucesivamente.
+
+Este código da como resultado una nueva lista de hashes que corresponden al nivel de los padres Merkle.
+
+include::code-ch11/answers.py[tag=exercise2,indent=0]
+
+=== Raíz de Merkle
+
+Para obtener la raíz de Merkle calculamos los sucesivos niveles padre de Merkle hasta obtener un único hash.
+Si, por ejemplo, tenemos los elementos A a G (7 elementos), calculamos primero el nivel padre de Merkle de la siguiente manera:
+
+++++
+<ul class="simplelist">
+<li>[<em>H</em>(<em>A</em>|<em>B</em>), <em>H</em>(<em>C</em>|<em>D</em>), <em>H</em>(<em>E</em>|<em>F</em>), <em>H</em>(<em>G</em>|<em>G</em>)]</li>
+</ul>
+++++
+
+A continuación, volvemos a calcular el nivel de los padres de Merkle:
+
+++++
+<ul class="simplelist">
+<li>[<em>H</em>(<em>H</em>(<em>A</em>||<em>B</em>)|<em>H</em>(<em>C</em>|<em>D</em>), <em>H</em>(<em>H</em>(<em>E</em>|||<em>F</em>)||<em>H</em>(<em>G</em>|<em>)]</li>
+</ul>
+++++
+
+Nos quedamos con sólo dos elementos, así que calculamos el nivel del padre Merkle una vez más:
+
+++++
+<ul class="simplelist">
+<li><em>H</em>(<em>H</em>(<em>H</em>(<em>A</em>||<em>B</em>)||<em>H</em>(<em>C</em>|<em>D</em>))|<em>H</em>(<em>H</em>(<em>E</em>||<em>F</em>)||<em>H</em>(<em>G</em>|<em>G</em>))</li>
+</ul>
+++++
+
+Como nos queda exactamente un hash, hemos terminado.
+Cada nivel reducirá a la mitad el número de hashes, por lo que al hacer este proceso una y otra vez acabaremos obteniendo un único elemento final llamado raíz de Merkle:
+
+[fuente,python]
+----
+include::code-ch11/examples.py[tag=ejemplo3]
+----
+<1> Hacemos un bucle hasta que quede un hash.
+<2> Salimos del bucle por lo que sólo debería haber un elemento.
+
+include::code-ch11/answers.py[tag=exercise3,indent=0]
+
+=== Raíz de Merkle en bloques
+
+Calcular la raíz de Merkle en bloques debería ser bastante sencillo, pero debido a los problemas de endianización, resulta ser complicado.
+En concreto, utilizamos el orden little-endian para las hojas del árbol de Merkle.
+Después de calcular la raíz de Merkle, volvemos a utilizar el orden little-endian.
+
+En la práctica, esto significa invertir las hojas antes de empezar e invertir la raíz al final:
+
+[fuente,pycon]
+----
+include::code-ch11/ejemplos.py[tag=ejemplo4]
+----
+<1> Invertimos cada hash antes de empezar a usar una comprensión de lista de Python.
+<2> Invertimos la raíz al final.
+
+Queremos calcular las raíces de Merkle para un `Bloque`, así que añadimos un parámetro `tx_hashes`:
+
+[fuente,python]
+----
+include::code-ch11/block.py[tag=source1]
+----
+<1> Ahora permitimos que los hash de las transacciones se establezcan como parte de la inicialización del bloque.
+Los hashes de transacción tienen que estar ordenados.
+
+Como nodo completo, si nos dan todas las transacciones, podemos calcular la raíz de Merkle y comprobar que la raíz de Merkle es la que esperamos.
+
+include::code-ch11/answers.py[tag=exercise4,indent=0]
+
+=== Utilizar un árbol de Merkle
+
+Ahora las pruebas de inclusión.
+Los nodos ligeros pueden obtener pruebas de que las transacciones de interés se incluyeron en un bloque sin tener que conocer todas las transacciones de un bloque (<<prueba_de_merkle>>).
+
+Digamos que un cliente ligero tiene dos transacciones que son de interés, que serían los hashes representados por las cajas verdes, H~K~ y H~N~ en <<merkle_proof>>.
+Un nodo completo puede construir una prueba de inclusión enviándonos todos los hashes marcados con cajas azules: H~ABCDEFGH~, H~IJ~, H~L~, H~M~ y H~OP~.
+El cliente ligero realizaría entonces estos cálculos:
+
+* H~KL~ = __merkle_parent__(H~K~, H~L~)
+* H~MN~ = __parente_de_merlón__(H~M~, H~N~)
+* H~IJKL~ = __merkle_parent__(H~IJ~, H~KL~)
+* H~MNOP~ = __merkle_parent__(H~MN~, H~OP~)
+* H~IJKLMNOP~ = __merkle_parent__(H~IJKL~, H~MNOP~)
+* H~ABCDEFGHIJKLMNOP~ = __merkle_parent__(H~ABCDEFGH~, H~IJKLMNOP~)
+
+[[prueba_de_merkle]]
+Prueba de Merkle
+image::images/prbc_1102.png[Prueba Merkle]
+
+Puedes ver que en <<merkle_proof>>, las casillas punteadas corresponden a los hashes que el cliente ligero calcula. En particular, la raíz de Merkle es H~ABCDEFGHIJKLMNOP~, que luego se puede cotejar con la cabecera del bloque cuya prueba de trabajo ha sido validada.
+
+¿Qué seguridad tiene una prueba de SPV?
+****
+El nodo completo puede enviar una cantidad limitada de información sobre el bloque y el cliente ligero puede recalcular la raíz de Merkle, que luego puede ser verificada contra la raíz de Merkle en la cabecera del bloque.
+Esto no garantiza que la transacción esté en la cadena de bloques más larga, pero sí asegura al cliente ligero que el nodo completo habría tenido que gastar mucha potencia de hashing o energía para crear una prueba de trabajo válida.
+Mientras la recompensa por crear dicha prueba de trabajo sea mayor que las cantidades de las transacciones, el cliente ligero puede al menos saber que el nodo completo no tiene un incentivo económico claro para mentir.
+
+Como las cabeceras de bloque pueden solicitarse a varios nodos, los clientes ligeros tienen una forma de verificar si un nodo está intentando mostrarles cabeceras de bloque que no son las más largas.
+Sólo hace falta un único nodo honesto para invalidar cien deshonestos, ya que la prueba de trabajo es objetiva.
+Por lo tanto, se requiere el aislamiento de un cliente ligero (es decir, el control de a quién está conectado el cliente ligero) para engañar de esta manera.
+La seguridad de SPV requiere que haya muchos nodos honestos en la red.
+
+En otras palabras, la seguridad de los clientes ligeros se basa en una red robusta de nodos y en el coste económico de producir pruebas de trabajo.
+Para las transacciones pequeñas en relación con el subsidio del bloque (actualmente 12,5 BTC), probablemente haya poco de qué preocuparse.
+Para transacciones grandes (digamos, 100 BTC), los nodos completos pueden tener un incentivo económico para engañarte.
+Las transacciones tan grandes deberían validarse generalmente con un nodo completo.
+****
+
+=== Bloque de Merkle
+
+Cuando un nodo completo envía una prueba de inclusión, hay dos piezas de información que necesitan ser incluidas.
+En primer lugar, el cliente ligero necesita la estructura del árbol de Merkle, y en segundo lugar, el cliente ligero necesita saber qué hash está en qué posición del árbol de Merkle.
+Una vez que se han proporcionado ambas informaciones, el cliente ligero puede reconstruir el árbol de Merkle parcial para reconstruir la raíz de Merkle y validar la prueba de inclusión.
+Un nodo completo comunica estos dos datos a un cliente ligero mediante un bloque Merkle.
+
+Para entender lo que hay en un bloque Merkle, tenemos que entender un poco cómo se puede recorrer un árbol Merkle, o más generalmente, los árboles binarios.
+En un árbol binario, los nodos pueden ser recorridos a lo ancho o a lo profundo.
+El recorrido a lo ancho iría nivel por nivel, como en <<bread_first_ordering>>.
+
+[[ordenación_de_primero_del_pan]]
+Ordenación del pan en primer lugar
+image::images/prbc_1103.png[Ordenamiento de pan primero]
+
+La ordenación de la amplitud comienza en la raíz y va de la raíz a las hojas, nivel por nivel, de izquierda a derecha.
+
+El ordenamiento de profundidad es un poco diferente y se ve como <<profundidad_primera_ordenación>>.
+
+[[ordenación_de_primera_profundidad]]
+Ordenamiento de profundidad primero
+image::images/prbc_1104.png[Profundidad primero]
+
+El ordenamiento de profundidad comienza en la raíz y recorre el lado izquierdo en cada nodo antes del lado derecho.
+
+En una prueba de inclusión (véase <<prueba_merkle_dos>>), el nodo completo envía las casillas verdes, H~K~ y H~N~, junto con las casillas azules, H~ABCDEFGH~, H~IJ~, H~L~, H~M~ y H~OP~.
+La ubicación de cada hash se reconstruye utilizando el ordenamiento de profundidad a partir de algunas banderas.
+A continuación se describe el proceso de reconstrucción del árbol, es decir, las cajas con bordes punteados de <<merkle_proof_two>>.
+
+[[prueba_de_merkle_dos]]
+Prueba de Merkle
+image::images/prbc_1102.png[Prueba de Merkle]
+
+==== Estructura del árbol de Merkle
+
+Lo primero que hace un cliente ligero es crear la estructura general del árbol de Merkle.
+Como los árboles de Merkle se construyen de las hojas hacia arriba, lo único que necesita un cliente ligero es el número de hojas que existen para conocer la estructura.
+El árbol de <<merkle_proof_two>> tiene 16 hojas.
+Un cliente ligero puede crear el árbol de Merkle vacío así:
+
+[fuente,python]
+----
+include::code-ch11/examples.py[tag=ejemplo5]
+----
+<1> Como dividimos a la mitad en cada nivel, log~2~ del número de hojas es el número de niveles que hay en el árbol de Merkle.
+Obsérvese que redondeamos usando `math.ceil` como redondeamos para dividir a la mitad en cada nivel.
+También podríamos ser inteligentes y utilizar `len(bin(total))-2`.
+<2> El árbol de Merkle tendrá el nivel raíz en el índice 0, el nivel inferior en el índice 1, y así sucesivamente.
+En otras palabras, el índice es la "profundidad" desde la parte superior.
+<3> En este árbol de Merkle hay niveles de 0 a `profundidad_máxima`.
+<4> En cualquier nivel particular, el número de nodos es el número de hojas totales dividido por 2 para cada nivel por encima del nivel de la hoja.
+<5> Todavía no sabemos cuál es ninguno de los hashes, así que los ponemos a `None`.
+<6> Tenga en cuenta que `merkle_tree` es una lista de listas de hashes, o una matriz bidimensional.
+
+include::code-ch11/answers.py[tag=exercise5,indent=0]
+
+==== Codificación de un árbol de Merkle
+
+Ahora podemos crear una clase `MerkleTree`:
+
+[fuente,python]
+----
+include::code-ch11/merkleblock.py[tag=source1]
+----
+<1> Guardamos un puntero a un nodo concreto del árbol, que nos será útil más adelante.
+<2> Imprimimos una representación del árbol.
+
+Ahora que tenemos un árbol vacío, podemos ir llenándolo para calcular la raíz de Merkle.
+Si tuviéramos todos los hash de las hojas, obtener la raíz de Merkle se vería así:
+
+[fuente,pycon]
+----
+include::code-ch11/ejemplos.py[tag=ejemplo6]
+----
+
+Esto llena el árbol y nos da la raíz de Merkle.
+Sin embargo, el mensaje de la red puede no darnos todas las hojas.
+El mensaje puede contener también algunos nodos internos.
+Necesitamos una forma más inteligente de llenar el árbol.
+
+La forma en que haremos esto será el recorrido del árbol.
+Podemos hacer un recorrido en profundidad y sólo rellenar los nodos que podemos calcular.
+Para recorrerlo, necesitamos saber en qué punto exacto del árbol nos encontramos.
+Las propiedades `self.current_depth` y `self.current_index` hacen esto.
+
+Necesitamos métodos para recorrer el árbol de Merkle.
+También incluiremos otros métodos útiles:
+
+[fuente,python]
+----
+clase MerkleTree:
+...
+include::code-ch11/merkleblock.py[tag=source2]
+----
+<1> Queremos la capacidad de establecer el nodo actual en el árbol a algún valor.
+<2> Queremos saber si somos un nodo hoja.
+<3> En ciertas situaciones, no tendremos un hijo derecho porque podemos estar en el nodo más a la derecha de un nivel cuyo nivel hijo tiene un número impar de elementos.
+
+Tenemos los métodos de recorrido del árbol de Merkle "izquierda", "derecha" y "arriba".
+Utilicemos estos métodos para poblar el árbol mediante un recorrido en profundidad:
+
+[fuente,pycon]
+----
+include::code-ch11/ejemplos.py[tag=ejemplo7]
+----
+<1> Recorremos hasta calcular la raíz de Merkle.
+Cada vez que pasamos por el bucle, estamos en un nodo concreto.
+<2> Si estamos en un nodo hoja, ya tenemos ese hash, así que no tenemos que hacer nada más que volver a subir.
+<3> Si no tenemos el hash de la izquierda, entonces calculamos primero el valor antes de calcular el hash del nodo actual.
+<4> Si no tenemos el hash derecho, calculamos el valor antes de calcular el hash del nodo actual.
+Ten en cuenta que ya tenemos el izquierdo debido al depth-first traversal.
+<5> Tenemos tanto el hash izquierdo como el derecho, así que calculamos el valor del padre Merkle y lo establecemos en el nodo actual.
+Una vez establecido, podemos volver a subir.
+
+Este código sólo funcionará cuando el número de hojas sea una potencia de dos, ya que los casos de borde en los que hay un número impar de nodos en un nivel no se manejan.
+
+Manejamos el caso en el que el padre es el padre del nodo más a la derecha en un nivel con un número impar de nodos:
+
+[fuente,pycon]
+----
+include::code-ch11/ejemplos.py[tag=ejemplo8]
+----
+<1> Si no tenemos el valor del nodo izquierdo, recorremos el nodo izquierdo, ya que todos los nodos internos tienen garantizado un hijo izquierdo.
+<2> Primero comprobamos si este nodo tiene un hijo derecho.
+Esto es cierto a no ser que este nodo sea el más a la derecha y el nivel hijo tenga un número impar de nodos.
+<3> Si no tenemos el valor del nodo de la derecha, recorremos ese nodo.
+<4> Si tenemos los valores de los nodos izquierdo y derecho, calculamos el valor del nodo actual usando `merkle_parent`.
+<5> Tenemos el valor del nodo izquierdo, pero el hijo derecho no existe.
+Este es el nodo más a la derecha de este nivel, así que combinamos el valor de la izquierda dos veces.
+
+Ahora podemos recorrer el árbol en busca del número de hojas que no son potencias de dos.
+
+==== El comando merkleblock
+
+El nodo completo que comunica un bloque Merkle envía toda la información necesaria para verificar que la transacción interesante está en el árbol Merkle.
+El comando de red `merkleblock` es el que comunica esta información; se parece a <<parsed_merkleblock>>.
+
+[[parsed_merkleblock]]
+.parsed merkleblock
+image::images/prbc_1106.png[comando merkleblock]
+
+Los seis primeros campos son exactamente los mismos que la cabecera del bloque de <<capítulo_bloques>>.
+Los últimos cuatro campos son la prueba de inclusión.
+
+El campo número de transacciones indica cuántas hojas tendrá este árbol de Merkle en particular.
+Esto permite a un cliente ligero construir un árbol Merkle vacío.
+El campo hashes contiene las cajas azul y verde de <<merkle_proof_two>>.
+Como el número de hashes en el campo hashes no es fijo, se prefija con cuántos hay.
+Por último, el campo flags da información sobre dónde van los hashes dentro del árbol de Merkle.
+Las banderas se analizan con `bytes_to_bits_field` para convertirlas en una lista de bits (1 y 0):
+
+[fuente,python]
+----
+include::code-ch11/helper.py[tag=source1]
+----
+
+La ordenación de los bytes es un poco extraña, pero está pensada para que sea fácil de convertir en los bits de bandera necesarios para reconstruir la raíz de Merkle.
+
+include::code-ch11/answers.py[tag=exercise6,indent=0]
+
+==== Usando Bits de Bandera y Hashes
+
+Los bits de bandera informan de dónde van los hashes utilizando el orden de profundidad.
+
+Las reglas para los bits de la bandera son:
+
+1. Si el valor del nodo se da en el campo de los hashes (recuadro azul en <<proceso_de_un_bloque_merkle>>), el bit de bandera es 0.
+2. Si el nodo es un nodo interno y el valor debe ser calculado por el cliente ligero (contorno punteado en <<processing_a_merkle_block>>), el bit de bandera es 1.
+3. Si el nodo es un nodo hoja y es una transacción de interés (recuadro verde en <<processing_a_merkle_block>>), el flag es 1 y el valor del nodo también se da en el campo hashes.
+Estos son los elementos que se ha comprobado que se incluyen en el árbol de Merkle.
+
+[[procesamiento_de_un_bloque_de_merkle]]
+Procesamiento de un bloque Merkle
+image::images/prbc_1107.png[Bloques Merkle y Hashes]
+
+Dado el árbol de <<proceso_de_un_bloque_de_merkle>>:
+
+* El bit de bandera es 1 para el nodo raíz (1), ya que ese hash es calculado por el cliente ligero.
+* El hijo de la izquierda, H~ABCDEFGH~ (2), está incluido en el campo del hash, por lo que la bandera es 0.
+* Desde aquí, pasamos a H~IJKLMNOP~ (3) en lugar de H~ABCD~ o H~EFGH~ ya que H~ABCDEFGH~ representa ambos nodos y no los necesitamos.
+* El hijo derecho, H~IJKLMNOP~, también se calcula, por lo que tiene un bit de bandera de 1.
+* Para calcular H~IJKLMNOP~, necesitamos los valores de H~IJKL~ y H~MNOP~ (9). El siguiente nodo en orden de profundidad es el hijo de la izquierda, H~IJKL~ (4), que es donde nos desplazamos a continuación.
+* H~IJKL~ es un nodo interno que se calcula, por lo que el bit de bandera es 1.
+* Desde aquí, nos dirigimos a su hijo izquierdo, H~IJ~ (5).
+Cuando volvamos a este nodo, atravesaremos hasta H~KL~ (6).
+* H~IJ~ es el siguiente en el orden de profundidad; su hash está incluido en la lista de hashes y la bandera es 0.
+* H~KL~ es un nodo interno, calculado, por lo que la bandera es 1.
+* H~K~ (7) es un nodo hoja cuya presencia en el bloque se está probando, por lo que la bandera es 1.
+* H~L~ (8) es un nodo cuyo valor está incluido en el campo del hash, por lo que la bandera es 0.
+* Recorremos hasta H~KL~, cuyo valor se puede calcular ahora, ya que se conocen H~K~ y H~L~.
+* Recorremos hasta H~IJKL~, cuyo valor se puede calcular ahora ya que se conocen H~IJ~ y H~KL~.
+* Recorremos hasta H~IJKLMNOP~, cuyo valor aún no podemos calcular porque no hemos llegado a H~MNOP~.
+* Atravesamos hasta H~MNOP~, que es otro nodo interno, por lo que la bandera es 1.
+* H~MN~ (10) es otro nodo interno que está calculado, por lo que la bandera es 1.
+* H~M~ (11) es un nodo cuyo valor se incluye en el campo hash, por lo que la bandera es 0.
+* H~N~ (12) es de interés, por lo que la bandera es 1 y su valor está en el campo hashes.
+* Recorremos hasta H~MN~, cuyo valor se puede calcular ahora.
+* Volvemos a subir hasta H~MNOP~, cuyo valor no se puede calcular porque aún no hemos llegado a H~OP~.
+* H~OP~ (13) está dado, por lo que la bandera es 1 y su hash es el hash final del campo hashes.
+* Atravesamos hasta H~MNOP~, que ahora se puede calcular.
+* Pasamos a H~IJKLMNOP~, que ahora se puede calcular.
+* Finalmente, llegamos a H~ABCDEFGHIJKLMNOP~, que es la raíz de Merkle, y la calculamos.
+
+Los bits de bandera para los nodos (1) a (13) son:
+[fuente,python]
+----
+1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0
+----
+Debe haber siete hashes en el campo hashes, en este orden:
+
+* H~ABCDEFGH~
+* H~IJ~
+* H~K~
+* H~L~
+* H~M~
+* H~N~
+* H~OP~
+
+Observe que cada letra está representada en los hashes, de la A a la P.
+Esta información es suficiente para demostrar que H~K~ y H~N~ (los recuadros verdes en <<proceso_de_un_bloque_de_merkle>>) están incluidos en el bloque.
+
+Como se puede ver en <<proceso_de_un_bloque_de_merkle>>, los bits de la bandera se dan en orden de profundidad.
+Cada vez que se nos da un hash, como en el caso de H~ABCDEFGH~, nos saltamos sus hijos y continuamos.
+En el caso de H~ABCDEFGH~, pasamos a H~IJKLMNOP~ en lugar de H~ABCD~.
+Los bits de bandera son un mecanismo inteligente para codificar qué nodos tienen qué valor hash.
+
+Ahora podemos poblar el árbol de Merkle y calcular la raíz, dados los bits de bandera y los hashes apropiados:
+
+[fuente,python]
+----
+clase MerkleTree:
+...
+include::code-ch11/merkleblock.py[tag=source3]
+----
+<1> El objetivo de poblar este árbol de Merkle es calcular la raíz.
+Cada iteración del bucle procesa un nodo hasta calcular la raíz.
+<2> Para los nodos hoja, siempre se nos da el hash.
+<3> `flag_bits.pop(0)` es una forma en Python de poner en cola el siguiente bit de bandera.
+Es posible que queramos hacer un seguimiento de los hashes que nos interesan mirando el bit de bandera, pero por ahora no lo hacemos.
+<4> `hashes.pop(0)` es como obtenemos el siguiente hash del campo hashes.
+Necesitamos establecer el nodo actual a ese hash.
+<5> Si no tenemos el valor del hijo izquierdo, hay dos posibilidades.
+El valor de este nodo puede estar en el campo hashes, o puede necesitar ser calculado.
+<6> El siguiente bit de bandera nos dice si necesitamos calcular este nodo o no.
+Si el bit de bandera es 0, el siguiente hash en el campo hashes es el valor de este nodo.
+Si el bit de bandera es 1, tenemos que calcular el valor del nodo izquierdo (y posiblemente el derecho).
+<7> Tenemos la garantía de que hay un hijo izquierdo, así que recorremos ese nodo y obtenemos su valor.
+<8> Comprobamos que el nodo derecho existe.
+<9> Tenemos el hash izquierdo, pero no el derecho.
+Recorremos el nodo derecho para obtener su valor.
+<10> Tenemos los valores de los nodos izquierdo y derecho, así que calculamos su padre Merkle para obtener el valor del nodo actual.
+<11> Tenemos el valor del nodo izquierdo, pero el derecho no existe.
+En este caso, según las reglas del árbol de Merkle, calculamos el padre Merkle del nodo izquierdo dos veces.
+<12> Todos los hashes deben ser consumidos o tenemos datos erróneos.
+<13> Todos los bits de bandera deben ser consumidos o tenemos datos malos.
+
+include::code-ch11/answers.py[tag=exercise7,indent=0]
+
+=== Conclusión
+
+La verificación de pagos simplificada es útil, pero no está exenta de algunas desventajas significativas.
+Los detalles completos están fuera del alcance de este libro, pero a pesar de que la programación es bastante sencilla, la mayoría de los monederos ligeros no utilizan SPV y en su lugar confían en los datos de los servidores del proveedor del monedero.
+El principal inconveniente de SPV es que los nodos a los que te conectas saben algo sobre las transacciones que te interesan.
+Es decir, se pierde algo de privacidad al usar SPV.
+Esto se tratará con más detalle en el <<capítulo_bloom_filters>> cuando hagamos filtros Bloom para indicar a los nodos qué transacciones nos interesan.
+

@@ -1,0 +1,445 @@
+[[capítulo_bloques]]
+== Bloques
+
+[.lead]
+Las transacciones transfieren bitcoins de una parte a otra y se desbloquean, o autorizan, mediante firmas.
+Esto garantiza que el remitente autorizó la transacción, pero ¿qué ocurre si el remitente envía las mismas monedas a varias personas? El propietario de una caja de seguridad puede intentar gastar la misma salida dos veces. Esto se llama el _problema del doble gasto_.
+Al igual que cuando se da un cheque que tiene la posibilidad de rebotar, el receptor necesita tener la seguridad de que la transacción es válida.
+
+Aquí es donde entra una importante innovación de Bitcoin, con los _bloques_.
+Piense en los bloques como una forma de ordenar las transacciones.
+Si ordenamos las transacciones, se puede evitar un doble gasto haciendo inválida cualquier transacción posterior que entre en conflicto.
+Esto es el equivalente a aceptar la transacción anterior como la válida.
+
+Implementar esta regla sería fácil (la primera transacción es válida, las siguientes que entran en conflicto no son válidas) si pudiéramos ordenar las transacciones de una en una.
+Desgraciadamente, eso requeriría que los nodos de la red se pusieran de acuerdo sobre qué transacción debe ser la siguiente y provocaría una gran sobrecarga de transmisión para llegar a un consenso.
+También podríamos ordenar grandes lotes de transacciones, tal vez una vez al día, pero eso no sería muy práctico, ya que las transacciones se liquidarían sólo una vez al día y no tendrían finalidad antes.
+
+Bitcoin encuentra un punto intermedio entre estos extremos al liquidar cada 10 minutos en lotes de transacciones.
+Estos lotes de transacciones son lo que llamamos bloques.
+En este capítulo revisaremos cómo analizar los bloques y cómo comprobar la prueba de trabajo.
+Empezaremos con una transacción especial llamada transacción coinbase, que es la primera transacción de cada bloque.
+
+=== Transacciones en Coinbase
+
+Las transacciones de Coinbase no tienen nada que ver con la empresa estadounidense del mismo nombre.
+Coinbase es la primera transacción requerida de cada bloque y es la única transacción permitida para traer bitcoins a la existencia.
+Los resultados de la transacción de Coinbase se los queda quien la entidad minera designe y suelen incluir todas las tasas de transacción de las demás transacciones del bloque, así como algo llamado la _recompensa del bloque_.
+
+La transacción de coinbase es lo que hace que merezca la pena que un minero mine.
+<<coinbase_transaction>> muestra el aspecto de una transacción de coinbase.
+
+[[coinbase_transaction]]
+Transacción de Coinbase
+image::images/prbc_0901.png[Transacción Coinbase]
+
+La estructura de las transacciones no difiere de la de otras transacciones en la red Bitcoin, con algunas excepciones:
+
+1. Las transacciones de Coinbase deben tener exactamente una entrada.
+2. La única entrada debe tener una transacción previa de 32 bytes de `00`.
+3. La única entrada debe tener un índice anterior de `ffffff`.
+
+Estas tres condiciones determinan si una transacción es una transacción de Coinbase o no.
+
+include::code-ch09/answers.py[tag=exercise1,indent=0]
+
+==== ScriptSig
+
+La transacción de coinbase no tiene ninguna salida previa que esté gastando, así que la entrada no está desbloqueando nada.
+Entonces, ¿qué hay en el ScriptSig?
+
+El ScriptSig de la transacción de coinbase es establecido por quien minó la transacción.
+La principal restricción es que el ScriptSig tiene que ser de al menos 2 bytes y no más de 100 bytes.
+Aparte de estas restricciones y de la BIP0034 (descrita en la siguiente sección), la ScriptSig puede ser cualquier cosa que el minero quiera, siempre que la evaluación de la ScriptSig por sí misma, sin la correspondiente ScriptPubKey, sea válida.
+Aquí está el ScriptSig para la transacción de coinbase del bloque genesis:
+
+```
+4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c
+6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73
+```
+
+Este ScriptSig fue compuesto por Satoshi y contiene un mensaje que podemos leer:
+
+[fuente,python]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo1]
+----
+
+Este fue el titular del _Times_ de Londres del 3 de enero de 2009.
+Esto demuestra que el bloque génesis fue creado en algún momento _en o después_ de esa fecha, y no _antes_.
+Los ScriptSigs de otras transacciones de Coinbase contienen datos igualmente arbitrarios.
+
+[[BIP0034]]
+==== BIP0034
+
+El BIP0034 regula el primer elemento del ScriptSig de las transacciones de coinbase.
+Esto se debía a un problema de red en el que los mineros utilizaban la _misma_ transacción de coinbase para diferentes bloques.
+
+El hecho de que la transacción de coinbase sea la misma en cuanto a bytes significa que los ID de transacción también son los mismos, ya que el hash256 de la transacción es determinista.
+Para evitar la duplicación del ID de la transacción, Gavin Andresen es el autor de BIP0034, que es una regla de soft-fork que añade la altura del bloque que se está minando en el primer elemento del ScriptSig de coinbase.
+
+La altura se interpreta como un entero little-endian y debe ser igual a la altura del bloque (es decir, el número de bloques desde el bloque génesis).
+Por lo tanto, una transacción de coinbase no puede ser igual en bytes a través de diferentes bloques, ya que la altura del bloque será diferente.
+Así es como podemos analizar la altura de la transacción coinbase en <<coinbase_transaction>>:
+
+[fuente,python]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo2]
+----
+
+Una transacción de Coinbase revela el bloque en el que estaba.
+Las transacciones de Coinbase en diferentes bloques deben tener diferentes ScriptSigs y, por tanto, diferentes IDs de transacción.
+Esta regla sigue siendo necesaria ya que, de lo contrario, permitiría duplicar los ID de transacción de Coinbase en varios bloques.
+
+include::code-ch09/answers.py[tag=exercise2,indent=0]
+
+=== Cabezales de bloque
+
+Los bloques son lotes de transacciones, y la cabecera del bloque son metadatos sobre las transacciones incluidas en un bloque.
+La cabecera del bloque, tal y como se muestra en <<parsed_block>>, se compone de:
+
+* Versión
+* Bloque anterior
+* Raíz de Merkle
+* Marca de tiempo
+* Bits
+* Nonce
+
+[[bloque_parseado]]
+Bloque analizado
+image::images/prbc_0902.png[Bloque analizado]
+
+La cabecera del bloque son los metadatos del mismo.
+A diferencia de las transacciones, cada campo de la cabecera de un bloque tiene una longitud fija, como se indica en <<parsed_block>>;
+una cabecera de bloque ocupa exactamente 80 bytes.
+En el momento de escribir este artículo, hay aproximadamente 550.000 bloques, o ~45 MB en cabeceras de bloque.
+La cadena de bloques completa, por otra parte, es de aproximadamente 200 GB, por lo que las cabeceras son aproximadamente el 0,023% del tamaño.
+El hecho de que las cabeceras sean mucho más pequeñas es una característica importante, como veremos cuando veamos la verificación de pagos simplificada en el <<capítulo_spv>>.
+
+Al igual que el ID de la transacción, el ID del bloque es la representación hexadecimal del hash256 de la cabecera interpretado en little-endian.
+El ID de bloque es interesante:
+
+----
+include::code-ch09/examples.py[tag=ejemplo3]
+----
+
+Este ID es el que se pone en `prev_block` para un bloque que se construye encima de éste.
+Por ahora, observe que el ID comienza con muchos ceros.
+Volveremos a hablar de esto en <<proof_f_work>>, después de ver con más detalle los campos de la cabecera del bloque.
+
+Podemos empezar a codificar una clase `Block` basada en lo que ya sabemos:
+
+[fuente,python]
+----
+include::code-ch09/block.py[tag=source1]
+----
+
+include::code-ch09/answers.py[tag=exercise3,indent=0]
+
+include::code-ch09/answers.py[tag=exercise4,indent=0]
+
+include::code-ch09/answers.py[tag=exercise5,indent=0]
+
+==== Versión
+
+La _Versión_ en el software normal se refiere a un conjunto particular de características.
+Para un bloque, esto es similar, en el sentido de que el campo de la versión refleja las capacidades del software que produjo el bloque.
+En el pasado se utilizaba como una forma de indicar una única característica que estaba lista para ser desplegada por el minero del bloque.
+La versión 2 significaba que el software estaba listo para el BIP0034, que introdujo la característica de la altura del bloque de transacciones de Coinbase mencionada anteriormente en este capítulo.
+La versión 3 significaba que el software estaba listo para el BIP0066, que imponía una codificación DER estricta.
+La versión 4 significaba que el software estaba listo para `OP_CHECKLOCKTIMEVERIFY`.
+
+Desgraciadamente, el incremento del número de versión significaba que sólo se señalaba una característica en la red a la vez.
+Para paliar esto, los desarrolladores idearon el BIP0009, que permite señalar hasta 29 características diferentes al mismo tiempo.
+
+La forma en que funciona BIP0009 es fijando los 3 primeros bits de la cabecera de 4 bytes (32 bits) para que sean `001` para indicar que el minero está usando BIP0009.
+Los primeros 3 bits tienen que ser `001`, ya que eso obliga a los clientes más antiguos a interpretar el campo de la versión como un número mayor o igual a 4, que fue el último número de versión que se utilizó antes de BIP0009.
+
+Esto significa que, en hexadecimal, el primer carácter será siempre 2 o 3.
+Los otros 29 bits se pueden asignar a diferentes características de la bifurcación suave para las que los mineros pueden señalar su disponibilidad.
+Por ejemplo, el bit 0 (el de más a la derecha) puede ponerse a 1 para señalar la disponibilidad de una bifurcación suave, el bit 1 (el segundo de la derecha) puede ponerse a 1 para señalar la disponibilidad de otra, el bit 2 (el tercero de la derecha) puede ponerse a 1 para señalar la disponibilidad de otra, y así sucesivamente.
+
+El BIP0009 requiere que el 95% de los bloques estén listos en una determinada época de 2.016 bloques (el período para un ajuste de la dificultad; más adelante en este capítulo) antes de que la función de bifurcación suave se active en la red.
+Las bifurcaciones suaves que han utilizado el BIP0009 hasta el momento de escribir este artículo han sido el BIP0141 (Segwit).
+Estos BIPs utilizaban los bits 0 y 1 para la señalización, respectivamente.
+El BIP0091 utilizaba algo parecido al BIP0009 pero con un umbral del 80% y un periodo de bloque más pequeño, por lo que no utilizaba estrictamente el BIP0009.
+El bit 4 se utilizaba para señalar el BIP0091.
+
+La comprobación de estas características es relativamente sencilla:
+
+[fuente,python]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo4]
+----
+<1> El operador `>>` es el operador de desplazamiento de bits a la derecha, que desecha los 29 bits más a la derecha, dejando sólo los 3 bits superiores.
+El `0b001` es una forma de escribir un número en binario en Python.
+<2> El operador `&` es el operador "bitwise and".
+En nuestro caso, primero desplazamos a la derecha 4 bits y luego comprobamos que el bit más a la derecha es 1.
+<3> Desplazamos 1 a la derecha porque BIP0141 fue asignado al bit 1.
+
+include::code-ch09/answers.py[tag=exercise6,indent=0]
+
+include::code-ch09/answers.py[tag=exercise7,indent=0]
+
+include::code-ch09/answers.py[tag=exercise8,indent=0]
+
+==== Bloque anterior
+
+Todos los bloques tienen que apuntar a un bloque anterior.
+Por eso la estructura de datos se llama _cadena de bloques_.
+Los bloques se enlazan hasta el primer bloque, o el _bloque de génesis_.
+El campo del bloque anterior termina en un montón de bytes "00", de los que hablaremos más adelante en este capítulo.
+
+==== Raíz de Merkle
+
+La raíz Merkle codifica todas las transacciones ordenadas en un hash de 32 bytes.
+Discutiremos cómo esto es importante para los clientes de verificación de pagos simplificados (SPV) y cómo pueden utilizar la raíz Merkle junto con los datos del servidor para obtener una prueba de inclusión en <<capítulo_spv>>.
+
+==== Timestamp
+
+La marca de tiempo es una marca de tiempo estilo Unix que ocupa 4 bytes.
+Las marcas de tiempo Unix son el número de segundos desde el 1 de enero de 1970.
+Esta marca de tiempo se utiliza en dos lugares: para validar los tiempos de bloqueo basados en la marca de tiempo en las transacciones incluidas en el bloque y para calcular un nuevo bit/objetivo/difícil cada 2.016 bloques.
+La mediana del tiempo pasado (MTP) de los últimos 11 bloques.
+
+[NOTA]
+¿Se desbordará Bitcoin en la marca de tiempo?
+====
+El campo timestamp de Bitcoin en la cabecera del bloque es de 4 bytes, o 32 bits.
+Esto significa que una vez que la marca de tiempo de Unix excede 2^32^ - 1, no hay espacio para ir más allá.
+2^32^ segundos son aproximadamente 136 años, lo que significa que este campo no tendrá más espacio en 2106 (136 años después de 1970).
+
+Mucha gente cree erróneamente que sólo tenemos hasta 68 años después de 1970, o sea 2038, pero eso es sólo cuando el campo es un entero con signo (2^31^ segundos son 68 años), así que nos beneficiamos de ese bit extra, lo que nos da hasta 2106.
+
+En 2106, la cabecera del bloque necesitará algún tipo de bifurcación, ya que la marca de tiempo en la cabecera del bloque ya no aumentará continuamente.
+====
+
+==== Bits
+
+Bits es un campo que codifica la prueba de trabajo necesaria en este bloque.
+Esto se discutirá más en la siguiente sección.
+
+==== Nonce
+
+Nonce significa "número utilizado sólo una vez", o _n-once_.
+Este número es el que cambian los mineros cuando buscan pruebas de trabajo.
+
+[[proof_f_work]]
+=== Prueba de trabajo
+
+La prueba de trabajo es lo que asegura a Bitcoin y, en un nivel profundo, permite la minería descentralizada de Bitcoin.
+Encontrar una prueba de trabajo da a un minero el derecho a poner el bloque adjunto en la cadena de bloques.
+Como la prueba de trabajo es muy rara, no es una tarea fácil.
+Pero como la prueba de trabajo es objetiva y fácil de verificar, cualquiera puede ser un minero si así lo desea.
+
+La prueba de trabajo se llama "minería" por una buena razón.
+Al igual que con la minería física, hay algo que los mineros buscan.
+Una operación típica de minería de oro procesa 45 toneladas de tierra y roca antes de acumular 1 onza de oro.
+Esto se debe a que el oro es muy raro.
+Sin embargo, una vez que se encuentra el oro, es muy fácil verificar que el oro es real.
+Existen pruebas químicas, piedras de toque y muchas otras formas de saber de forma relativamente barata si lo encontrado es oro.
+
+Del mismo modo, la prueba de trabajo es un número que proporciona un resultado muy raro.
+Para encontrar una prueba de trabajo, los mineros de la red Bitcoin tienen que remover el equivalente numérico de la tierra y la roca.
+Al igual que con el oro, verificar la prueba de trabajo es mucho más barato que encontrarla.
+
+Entonces, ¿qué es la prueba de trabajo?
+Veamos el hash256 de la cabecera del bloque que vimos antes para averiguarlo:
+
+```
+020000208ec39428b17323fa0ddec8e887b4a7c53b8c0a0a220cfd000000000000000000
+5b0750fce0a889502d40508d39576821155e9c9e3f5c3157f961db38fd8b25be1e77a759
+e93c0118a4ffd71d
+```
+
+----
+include::code-ch09/examples.py[tag=ejemplo5]
+----
+<1> Estamos imprimiendo a propósito este número como 64 dígitos hexadecimales para mostrar lo pequeño que es en términos de 256 bits.
+
+Se sabe que sha256 genera valores distribuidos uniformemente.
+Dado esto, podemos tratar dos rondas de sha256, o hash256, como un número aleatorio.
+La probabilidad de que cualquier número aleatorio de 256 bits sea tan pequeño es ínfima.
+La probabilidad de que el primer bit de un número de 256 bits sea 0 es de 0,5, de que los dos primeros bits sean 00, 0,25, de que los tres primeros bits sean 000, 0,125, y así sucesivamente.
+Tenga en cuenta que cada 0 en el hexadecimal que acabamos de mostrar representa cuatro bits 0.
+En este caso, los primeros 73 bits son 0, lo que tiene una probabilidad de 0,5^73^, es decir, aproximadamente 1 de cada 10^22^.
+Esta es una probabilidad realmente pequeña.
+Por término medio, hay que generar 10^22^ (o 10 trillones de trillones) números aleatorios de 256 bits antes de encontrar uno tan pequeño.
+En otras palabras, tenemos que calcular 10^22^ en hashes de media para encontrar uno así de pequeño.
+Volviendo a la analogía, el proceso de encontrar una prueba de trabajo requiere que procesemos alrededor de 10^22^ trozos numéricos de tierra y roca para encontrar nuestra pepita de oro numérica.
+
+==== Cómo un minero genera nuevos hashes
+
+¿De dónde obtiene el minero la nueva suciedad numérica para procesarla y ver si satisface la prueba de trabajo?
+Aquí es donde entra el campo nonce.
+Los mineros pueden cambiar el campo nonce a voluntad para cambiar el hash de la cabecera del bloque.
+
+Por desgracia, los 4 bytes o 32 bits del campo nonce (o 2^32^ posibles nonces que un minero puede probar) son insuficientes para la prueba de trabajo requerida.
+Los equipos ASIC modernos pueden calcular mucho más de 2^32^ hashes diferentes por segundo.
+El AntMiner S9, por ejemplo, calcula 12 terahashes por segundo (Th/s).
+Eso es aproximadamente 2^43^ hashes por segundo, lo que significa que todo el espacio de nonce puede consumirse en sólo 0,0003 segundos.
+
+Lo que los mineros pueden hacer cuando el campo nonce se agota es cambiar la transacción de coinbase, que entonces cambia la raíz Merkle, dando a los mineros un espacio nonce fresco cada vez.
+La otra opción es hacer rodar el campo de la versión o utilizar el ASICBOOST.
+La mecánica de cómo la raíz Merkle cambia cada vez que cualquier transacción en el bloque cambia será discutida en el <<capítulo_spv>>.
+
+==== El objetivo
+
+La prueba de trabajo es el requisito de que el hash de cada cabecera de bloque en Bitcoin debe estar por debajo de un determinado objetivo.
+El _objetivo_ es un número de 256 bits que se calcula directamente a partir del campo de bits (en nuestro ejemplo, +e93c0118+).
+El objetivo es muy pequeño comparado con un número medio de 256 bits.
+
+El campo de bits es en realidad dos números diferentes.
+El primero es el exponente, que es el último byte.
+El segundo es el coeficiente, que son los otros tres bytes en little-endian.
+La fórmula para calcular el objetivo a partir de estos dos números es:
+
+++++
+<div data-type="ecuación">
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+<mi>objetivo</mi>
+<mo>=</mo>
+<mi>coeficiente</mi> <mo>&#215;</mo> <msup><mn>256</mn><mrow><mi>exponente</mi> <mo>-</mo> <mn>3</mn></mrow></msup>
+</math>
+</div>
+++++
+
+
+Así es como calculamos el objetivo dado el campo de bits en Python:
+
+[fuente,pycon]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo6]
+----
+<1> Estamos imprimiendo a propósito este número como 64 dígitos hexadecimales para mostrar lo pequeño que es el número en términos de 256 bits.
+
+Una prueba de trabajo válida es un hash de la cabecera del bloque que, cuando se interpreta como un entero little-endian, está por debajo del número objetivo.
+Los hashes de prueba de trabajo son extremadamente raros, y el proceso de minería es el proceso de encontrar uno de estos hashes.
+Para encontrar una sola prueba de trabajo con el objetivo anterior, la red en su conjunto debe calcular 3,8 &#215; 10^21^ hashes, lo que, cuando se encontró este bloque, podía hacerse aproximadamente cada 10 minutos.
+Para contextualizar esta cifra, la mejor tarjeta de minería GPU del mundo tendría que funcionar durante una media de 50.000 años para encontrar una sola prueba de trabajo por debajo de este objetivo.
+
+Podemos comprobar que el hash de esta cabecera de bloque satisface la prueba de trabajo de la siguiente manera:
+
+[fuente,python]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo7]
+----
+<1> `objetivo` se calcula arriba.
+
+Podemos ver que la prueba de trabajo es menor alineando los números en 64 hexágonos de paso:[<span class="keep-together">caracteres</span>]:
+
+----
+TG: 0000000000000000013ce9000000000000000000000000000000000000000000
+
+ID: 0000000000000000007e9e4c586439b0cdbe13b1370bdd9435d76a644d047523
+----
+
+include::code-ch09/answers.py[tag=exercise9,indent=0]
+
+==== Dificultad
+
+Los objetivos son difíciles de comprender para los seres humanos. El objetivo es el número que el hash debe estar por debajo, pero como humanos, no es fácil ver la diferencia entre un número de 180 bits y uno de 190 bits.
+El primero es mil veces más pequeño, pero al mirar los objetivos, números tan grandes no son fáciles de contextualizar.
+
+Para facilitar la comparación de diferentes objetivos, nació el concepto de _dificultad_.
+El truco es que la dificultad es inversamente proporcional al objetivo, para facilitar las comparaciones.
+La fórmula concreta es:
+
+++++
+<div data-type="ecuación">
+<math xmlns="http://www.w3.org/1998/Math/MathML">
+<mi>dificultad</mi>
+<mo>=</mo>
+<mi>0xffff</mi> <mo>&#215;</mo> <msup><mn>256</mn> <mrow><mi>0x1d</mi> <mo>-</mo> <mn>3</mn></mrow></msup> <mo>&#8725;</mo> <mi>objetivo</mi>
+</math>
+</div>
+++++
+
+El código tiene el siguiente aspecto:
+
+[fuente,python]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo8]
+----
+
+La dificultad de Bitcoin en el bloque génesis era de 1.
+Esto nos da el contexto de lo difícil que es actualmente la red principal.
+La dificultad se puede considerar como lo difícil que es minar ahora de lo que era al principio.
+La dificultad de la minería en el código anterior es aproximadamente 888 mil millones de veces más difícil que cuando Bitcoin comenzó.
+
+La dificultad se muestra a menudo en los exploradores de bloques y en los servicios de gráficos de precios de Bitcoin, ya que es una forma mucho más intuitiva de entender el esfuerzo necesario para crear un nuevo bloque.
+
+include::code-ch09/answers.py[tag=exercise10,indent=0]
+
+==== Comprobación de que la prueba de trabajo es suficiente
+
+Ya hemos aprendido que la prueba de trabajo se puede calcular calculando el hash256 de la cabecera del bloque e interpretándolo como un entero little-endian.
+Si este número es menor que el objetivo, tenemos una prueba de trabajo válida.
+Si no es así, el bloque no es válido ya que no tiene prueba de trabajo.
+
+include::code-ch09/answers.py[tag=exercise11,indent=0]
+
+==== Ajuste de la dificultad
+
+En Bitcoin, cada grupo de 2.016 bloques se denomina _período de ajuste de dificultad_.
+Al final de cada periodo de ajuste de dificultad, el objetivo se ajusta según este pase:[<span class="keep-together">fórmula</span>]:
+
+++++
+<ul class="simplelist">
+<li><em>diferencial de tiempo</em> = (marca de tiempo del último bloque en el período de ajuste de la dificultad) -
+(marca de tiempo del primer bloque en el período de ajuste de la dificultad)</li>
+<li>&nbsp;</li> <li>Los resultados de la prueba de la dificultad son los siguientes
+<li><em>nuevo_objetivo</em> = <em>objetivo_anterior</em> * <em>diferencial de tiempo</em> / (2 semanas)</li>.
+</ul>
+++++
+
+El __diferencial de tiempo__ se calcula de forma que si es mayor de 8 semanas, se utilizan 8 semanas, y si es menor de 3,5 días, se utilizan 3,5 días.
+De esta manera, el nuevo objetivo no puede cambiar más de cuatro veces en cualquier dirección.
+Es decir, el objetivo se reducirá o aumentará como máximo cuatro veces.
+
+Si cada bloque tarda una media de 10 minutos en crearse, 2.016 bloques deberían tardar 20.160 minutos.
+Hay 1.440 minutos por día, lo que significa que 2.016 bloques tardarán 20.160 / 1.440 = 14 días en crearse.
+El efecto del ajuste de la dificultad es que los tiempos de los bloques retroceden hacia la media de 10 minutos por bloque.
+Esto significa que, a largo plazo, los bloques siempre irán hacia bloques de 10 minutos, aunque haya entrado o salido mucha potencia de hashing de la red.
+
+El cálculo de los nuevos bits debería utilizar el campo de la marca de tiempo del último bloque de cada uno de los períodos de ajuste de dificultad actual y anterior.
+Desgraciadamente, Satoshi ha cometido otro error, ya que el cálculo del diferencial de tiempo se basa en el primer y el último bloque del periodo de ajuste de dificultad de 2.016 bloques.
+Por lo tanto, el diferencial de tiempo es la diferencia de bloques que están separados por 2.015 bloques en lugar de 2.016 bloques.
+
+Podemos codificar esta fórmula así:
+
+[fuente,python]
+----
+include::code-ch09/ejemplos.py[tag=ejemplo9]
+----
+<1> Observe que `TWO_WEEKS = 60*60*24*14` es el número de segundos en 2 semanas: 60 segundos &#xd7; 60 minutos &#xd7; 24 horas &#xd7; 14 días.
+<2> Esto asegura que si se tardó más de 8 semanas en encontrar los últimos 2.015 bloques, no disminuimos demasiado la dificultad.
+<3> Esto asegura que si se tardó menos de 3,5 días en encontrar los últimos 2.015 bloques, no aumentamos demasiado la dificultad.
+
+Tenga en cuenta que sólo necesitamos las cabeceras para calcular cuál debe ser el objetivo del siguiente bloque.
+Una vez que tenemos el objetivo, podemos convertirlo en bits.
+La operación inversa es así:
+
+[fuente,python]
+----
+include::code-ch09/helper.py[tag=source1]
+----
+<1> Deshazte de todos los ceros a la izquierda.
+<2> El formato de bits es una forma de expresar números realmente grandes de forma sucinta y se puede utilizar tanto con números negativos como positivos.
+Si el primer bit del coeficiente es un 1, el campo bits se interpreta como un número negativo.
+Como el objetivo es siempre positivo para nosotros, desplazamos todo en 1 byte si el primer bit es 1.
+<3> El exponente es la longitud del número en base 256.
+<4> El coeficiente son los tres primeros dígitos del número en base 256.
+<5> El coeficiente está en little-endian y el exponente va último en el formato de bits.
+
+Si el bloque no tiene los bits correctos calculados mediante la fórmula de ajuste de la dificultad, podemos rechazar ese bloque con seguridad.
+
+include::code-ch09/answers.py[tag=exercise12,indent=0]
+
+include::code-ch09/answers.py[tag=exercise13,indent=0]
+
+=== Conclusión
+
+Hemos aprendido cómo calcular el proof-of-work, cómo calcular los nuevos bits de un bloque después de un período de ajuste de la dificultad, y cómo analizar las transacciones de coinbase.
+Ahora pasaremos a la creación de redes en el <<capítulo_redes>> en nuestro camino hacia el campo de la cabecera del bloque que no hemos cubierto, la raíz de Merkle, en el <<capítulo_spv>>.
+

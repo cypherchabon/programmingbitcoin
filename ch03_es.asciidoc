@@ -1,0 +1,1033 @@
+[[capítulo_criptografía_de_curvas_elípticas]]
+== Criptografía de curva elíptica
+
+[.lead]
+Los dos capítulos anteriores cubrieron algunas matemáticas fundamentales.
+Aprendimos cómo funcionan los campos finitos y qué es una curva elíptica.
+En este capítulo, vamos a combinar los dos conceptos para aprender criptografía de curva elíptica.
+Específicamente, vamos a construir las primitivas necesarias para firmar y verificar mensajes, que es el corazón de lo que hace Bitcoin.
+
+=== Curvas elípticas sobre reales
+
+En el <<capítulo_curvas_elípticas>> hablamos de cómo se ve una curva elíptica visualmente porque estábamos trazando la curva sobre números _reales_.
+Específicamente, no son sólo números enteros o incluso racionales, sino todos los números reales.
+Pi, __sqrt__(2), __e__+7ª raíz de 19, y otros similares son todos números reales.
+
+Esto funcionó porque los números reales también son un campo.
+A diferencia de un campo _finito_, hay un número _infinito_ de números reales, pero por lo demás se mantienen las mismas propiedades:
+
+1. Si _a_ y _b_ están en el conjunto, _a_ + _b_ y _a_ ⋅ _b_ están en el conjunto.
+2. 0 existe y tiene la propiedad _a_ + 0 = _a_.
+3. 1 existe y tiene la propiedad _a_ ⋅ 1 = _a_.
+4. Si _a_ está en el conjunto, _-a_ está en el conjunto, que se define como el valor que hace que _a_ + (-__a__) = 0.
+5. Si _a_ está en el conjunto y no es 0, __a__^-1^ está en el conjunto, que se define como el valor que hace que _a_ ⋅ __a__^-1^ = 1.
+
+Claramente, todo esto es cierto: la suma y la multiplicación normales se aplican para la primera parte, las identidades aditiva y multiplicativa 0 y 1 existen, -__x__ es la inversa aditiva, y 1/__x__ es la inversa multiplicativa.
+
+Los números reales son fáciles de representar en una gráfica.
+Por ejemplo, __y__^2^ = __x__^3^ + 7 puede representarse como <<secp256k1_sobre_números_reales>>.
+
+[[secp256k1_over_real_numbers]]
+.secp256k1 sobre números reales
+image::images/prbc_0209.png[curva secp256k1]
+
+Resulta que podemos utilizar las ecuaciones de adición de puntos sobre cualquier campo, incluyendo los campos finitos que aprendimos en el <<capítulo_campos_finitos>>.
+La única diferencia es que tenemos que utilizar la suma/resta/multiplicación/división tal y como se define en el <<capítulo_campos_finitos>>, no las versiones "normales" que utilizan los números reales.
+
+=== Curvas elípticas sobre campos finitos
+
+¿Qué aspecto tiene una curva elíptica sobre un campo finito?
+Veamos la ecuación __y__^2^ = __x__^3^ + 7 sobre _F_~103~.
+Podemos comprobar que el punto (17,64) está en la curva calculando ambos lados de la ecuación:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sup>2</sup> = 64<sup>2</sup> % 103 = 79</li>
+<li><em>x</em><sup>3</sup> + 7 = (17<sup>3</sup>+7) % 103 = 79</li>
+</ul>
+++++
+
+Hemos verificado que el punto está en la curva utilizando la matemática del campo finito.
+
+[role="pagebreak-before"]
+Como estamos evaluando la ecuación sobre un campo finito, el gráfico de la ecuación tiene un aspecto muy diferente (<<curva_elíptica_sobre_un_campo_finito>>).
+
+[[curva_elíptica_sobre_un_campo_finito]]
+Curva elíptica sobre un campo finito
+image::images/prbc_0302.png[Curva elíptica sobre un campo finito]
+
+Como se puede ver, se trata de una gran dispersión de puntos y no hay una curva suave.
+Esto no es sorprendente ya que los puntos son discretos.
+El único patrón es que la curva es simétrica alrededor del centro, debido al término __y__^2^.
+La gráfica no es simétrica sobre el eje x como en la curva sobre los reales, sino alrededor de la mitad del eje y debido a que no hay números negativos en un campo finito.
+
+Lo sorprendente es que podemos utilizar las mismas ecuaciones de adición de puntos con la suma, la resta, la multiplicación, la división y la exponenciación como las definimos para los campos finitos, y todo sigue funcionando.
+Esto puede parecer sorprendente, pero las matemáticas abstractas tienen regularidades como ésta a pesar de ser diferentes de los modos de cálculo tradicionales con los que puedes estar familiarizado.
+
+include::code-ch03/answers.py[tag=exercise1,indent=0]
+
+=== Codificación de curvas elípticas sobre campos finitos
+
+Como hemos definido un punto de curva elíptica y hemos definido los operadores `+`, `-` ,`*` y `/` para campos finitos, podemos combinar las dos clases para crear puntos de curva elíptica sobre un campo finito:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo1]
+----
+
+Al inicializar `Punto`, recorreremos esta parte del código:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source1]
+----
+
+Los operadores de suma (`+`), multiplicación (`*`), exponenciación (`**`) y no igual (`!=`) utilizan aquí los métodos `__add__`, `__mul__`, `__pow__` y `__ne__` de `FiniteField`, respectivamente, y _no_ los equivalentes enteros.
+Al poder hacer la misma ecuación pero con diferentes definiciones para los operadores aritméticos básicos es como construimos una biblioteca de criptografía de curva elíptica.
+
+Ya hemos codificado las dos clases que necesitamos para implementar puntos de curva elíptica sobre un campo finito.
+Sin embargo, para comprobar nuestro trabajo, será útil crear un conjunto de pruebas.
+Lo haremos utilizando los resultados del Ejercicio 1:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source2]
+----
+<1> Pasamos objetos `FieldElement` a la clase `Point` para su inicialización.
+Ésta, a su vez, utilizará todas las operaciones matemáticas sobrecargadas en `FieldElement`.
+
+Ahora podemos ejecutar esta prueba así:
+
+[fuente,pycon]
+----
+>>> import ecc
+>>> from helper import run # <1>
+>>> run(ecc.ECCTest('test_on_curve'))
+.
+----------------------------------------------------------------------
+Se ha ejecutado 1 prueba en 0,001s
+
+OK
+----
+<1> `helper` es un módulo con algunas funciones de utilidad muy útiles, incluyendo la capacidad de ejecutar pruebas unitarias individualmente.
+
+=== Suma de puntos sobre campos finitos
+
+Podemos utilizar todas las mismas ecuaciones sobre campos finitos, incluida la ecuación lineal:
+
+++++
+<ul class="simplelist">
+<li><em>y</em> = <em>mx</em> + <em>b</em></li>
+</ul>
+++++
+
+Resulta que una "línea" en un campo finito no es exactamente lo que se espera (<<línea_sobre_un_campo_finito>>).
+
+[[línea_sobre_un_campo_finito]]
+Línea sobre un campo finito
+image::images/prbc_0303.png[Línea sobre un campo finito]
+
+No obstante, la ecuación funciona y podemos calcular cuál debe ser _y_ para una _x_ dada.
+
+Sorprendentemente, la suma de puntos también funciona en campos finitos.
+Esto se debe a que la suma de puntos de la curva elíptica funciona en todos los campos.
+Las mismas fórmulas exactas que utilizamos para calcular la suma de puntos en los reales funcionan en los campos finitos.
+En concreto, cuando __x__~1~ ≠ __x__~2~:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> = (<em>x</em><sub>1</sub>,<em>y</em><sub>1</sub>), <em>P</em><sub>2</sub> = (<em>x</em><sub>2</sub>,<em>y</em><sub>2</sub>), <em>P</em><sub>3</sub> = (<em>x</em><sub>3</sub>,<em>y</em><sub>3</sub>)</li>.
+<li><em>P</em><sub>1</sub> + <em>P</em><sub>2</sub> = <em>P</em><sub>3</sub></li>
+<li><em>s</em> = (<em>y</em><sub>2</sub> - <em>y</em><sub>1</sub>)/(<em>x</em><sub>2</sub> - <em>x</em><sub>1</sub>)</li>
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - <em>x</em><sub>1</sub> - <em>x</em><sub>2</sub></li>
+<li><em>y</em><sub>3</sub> = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>
+</ul>
+++++
+
+Y cuando __P__~1~ = __P__~2~:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> = (<em>x</em><sub>1</sub>,<em>y</em><sub>1</sub>), <em>P</em><sub>3</sub> = (<em>x</em><sub>3</sub>,<em>y</em><sub>3</sub>)</li>
+<li><em>P</em><sub>1</sub> + <em>P</em><sub>1</sub> = <em>P</em><sub>3</sub></li>
+<li><em>s</em> = (3<em>x</em><sub>1</sub><sup>2</sup> + <em>a</em>)/(2<em>y</em><sub>1</sub>)</li>
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - 2<em>x</em><sub>1</sub></li>
+<li><em>y</em><sub>3</sub> = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>
+</ul>
+++++
+
+Todas las ecuaciones de las curvas elípticas funcionan sobre campos finitos, lo que nos permite crear algunas primitivas criptográficas.
+
+=== Suma de puntos de codificación sobre campos finitos
+
+Como hemos codificado +FieldElement+ de forma que se definan `__add__`, `__sub__`, `__mul__`, `__truediv__`, `__pow__`, `__eq__`, y `__ne__`, podemos simplemente inicializar `Point` con objetos `FieldElement` y la suma de puntos funcionará:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo3]
+----
+
+include::code-ch03/answers.py[tag=exercise2,indent=0]
+
+include::code-ch03/answers.py[tag=exercise3,indent=0]
+
+=== Multiplicación escalar para curvas elípticas
+
+Como podemos añadir un punto a sí mismo, podemos introducir alguna notación nueva:
+
+++++
+<ul class="simplelist">
+<li>(170,142) + (170,142) = 2 ⋅ (170,142)</li>
+</ul>
+++++
+
+Del mismo modo, como tenemos asociatividad, podemos volver a sumar el punto:
+
+++++
+<ul class="simplelist">
+<li>2 ⋅ (170,142) + (170,142) = 3 ⋅ (170, 142)</li>.
+</ul>
+++++
+
+Podemos hacerlo tantas veces como queramos.
+Esto es lo que llamamos _multiplicación escalar_.
+Es decir, tenemos un número _escalar_ delante del punto.
+Podemos hacerlo porque hemos definido la suma de puntos y la suma de puntos es asociativa.
+
+Una propiedad de la multiplicación escalar es que es realmente difícil de predecir sin calcular (ver <<multiplicación escalar_resultados_para_y_2_x_3_7>>).
+
+[[scalar_multiplication_results_for_y_2_x_3_7]]
+Resultados de la multiplicación escalar para y^2^ = x^3^ + 7 sobre F~223~ para el punto (170,142)
+image::images/prbc_0304.png[Resultados de la multiplicación escalar]
+
+Cada punto está etiquetado por el número de veces que hemos añadido el punto.
+Puedes ver que se trata de una completa dispersión.
+Esto se debe a que la suma de puntos no es lineal y no es fácil de calcular.
+Realizar la multiplicación escalar es sencillo, pero hacer lo contrario, la división de puntos, no lo es.
+
+Esto se llama el _problema del logaritmo discreto_ y es la base de la criptografía de curva elíptica.
+
+Otra propiedad de la multiplicación escalar es que a un determinado múltiplo llegamos al punto en el infinito (recordemos que el punto en el infinito es la identidad aditiva o 0).
+Si imaginamos un punto _G_ y multiplicamos escalarmente hasta llegar al punto en el infinito, terminamos con un conjunto:
+
+++++
+<ul class="simplelist">
+<li>{ <em>G</em>, 2<em>G</em>, 3<em>G</em>, 4<em>G</em>, ... <em>nG</em> } donde <em>nG</em> = 0</li>
+</ul>
+++++
+
+Resulta que este conjunto se llama _grupo_, y como _n_ es finito, tenemos un _grupo finito_ (o más concretamente, un _grupo cíclico finito_).
+Los grupos son interesantes desde el punto de vista matemático porque se comportan bien con respecto a la adición:
+
+++++
+<ul class="simplelist">
+<li><em>G</em> + 4<em>G</em> = 5<em>G</em> o <em>aG</em> + <em>bG</em> = (<em>a</em> + <em>b</em>)<em>G</em></li>
+</ul>
+++++
+
+Cuando combinamos el hecho de que la multiplicación escalar es fácil de hacer en una dirección pero difícil en la otra y las propiedades matemáticas de un grupo, tenemos exactamente lo que necesitamos para la criptografía de curva elíptica.
+
+¿Por qué se llama el problema del registro discreto?
+****
+Tal vez se pregunte por qué el problema de la inversión de la _multiplicación escalar_ se denomina problema del _log_ discreto.
+
+Hemos llamado a la operación entre los puntos "suma", pero podríamos haberla llamado fácilmente "operación de punto".
+Normalmente, una nueva operación que se define en matemáticas se denota con el operador punto (⋅).
+El operador de punto también se utiliza para la multiplicación, y a veces ayuda a pensar así:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> ⋅ <em>P</em><sub>2</sub> = <em>P</em><sub>3</sub></li>
+</ul>
+++++
+
+Cuando haces muchas multiplicaciones, eso es lo mismo que la exponenciación.
+La multiplicación escalar cuando la llamamos "suma de puntos" se convierte en exponenciación escalar cuando pensamos en "multiplicación de puntos":
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sup>7</sup> = <em>Q</em></li>
+</ul>
+++++
+
+El problema del logaritmo discreto en este contexto es la capacidad de invertir esta ecuación, que acaba siendo:
+
+++++
+<ul class="simplelist">
+<li>log<sub>P</sub><em>Q</em> = 7</li>
+</ul>
+++++
+
+La ecuación logarítmica de la izquierda no tiene un algoritmo de cálculo analítico.
+Es decir, no hay una fórmula conocida que se pueda introducir para obtener la respuesta en general.
+Todo esto es un poco confuso, pero es justo decir que podríamos llamar al problema la "división puntual discreta" en lugar del problema logarítmico discreto.
+****
+
+include::code-ch03/answers.py[tag=exercise4,indent=0]
+
+=== Multiplicación escalar Redux
+
+La multiplicación escalar consiste en añadir el mismo punto a sí mismo un cierto número de veces.
+La clave para convertir la multiplicación escalar en criptografía de clave pública es utilizar el hecho de que la multiplicación escalar en curvas elípticas es muy difícil de invertir.
+Fíjate en el ejercicio anterior.
+Lo más probable es que hayas calculado el punto _s_ ⋅ (47,71) en __F__~223~ para _s_ desde 1 hasta 21.
+Aquí tienes los resultados:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo4]
+----
+
+Si se observan detenidamente los números, no hay un patrón real discernible en la multiplicación escalar.
+Las coordenadas _x_ no siempre aumentan o disminuyen, ni tampoco las coordenadas _y_.
+El único patrón es que entre el 10 y el 11, las coordenadas _x_ son iguales (el 10 y el 11 tienen el mismo _x_, al igual que el 9 y el 12, el 8 y el 13, etc.).
+Esto se debe a que 21 ⋅ (47,71) = 0.
+
+[role="pagebreak-before"]
+La multiplicación escalar parece realmente aleatoria, y eso es lo que da a esta ecuación _asimetría_.
+Un problema _asimétrico_ es uno que es fácil de calcular en una dirección, pero difícil de invertir.
+Por ejemplo, es bastante fácil calcular 12 ⋅ (47,71).
+Pero si se nos presenta esto:
+
+++++
+<ul class="simplelist">
+<li><em>s</em> ⋅ (47,71) = (194,172)</li>
+</ul>
+++++
+
+¿podríamos resolver para _s_?
+Podemos buscar los resultados mostrados anteriormente, pero eso es porque tenemos un grupo pequeño.
+Veremos en <<definirCurvaBC>> que cuando tenemos números mucho más grandes, el logaritmo discreto se convierte en un problema intratable.
+
+=== Grupos matemáticos
+
+La matemática anterior (campos finitos, curvas elípticas, combinación de ambos) fue realmente para llevarnos a este punto.
+Lo que realmente queremos generar para los fines de la criptografía de clave pública son grupos cíclicos finitos, y resulta que si tomamos un punto generador de una curva elíptica sobre un campo finito, podemos generar un grupo cíclico finito.
+
+A diferencia de los campos, los grupos tienen una sola operación.
+En nuestro caso, la operación es la suma de puntos.
+Los grupos también tienen otras propiedades, como el cierre, la invertibilidad, la conmutatividad y la asociatividad.
+Por último, necesitamos la identidad.
+
+Veamos cada propiedad, empezando por la última.
+
+==== Identidad
+
+Por si no lo has adivinado ya, la identidad se define como el punto en el infinito, que está garantizado que está en el grupo ya que generamos el grupo cuando llegamos al punto en el infinito.
+Por lo tanto:
+
+++++
+<ul class="simplelist">
+<li>0 + <em>A</em> = <em>A</em></li>
+</ul>
+++++
+
+
+Llamamos 0 al punto en el infinito porque, visualmente, es el punto que existe para ayudar a que las matemáticas funcionen (<<línea_vertical_intersecta_un_tercer_tiempo>>).
+
+[[línea_vertical_se_interseca_una_tercera_vez]]
+La línea vertical se "cruza" por tercera vez en el punto del infinito
+[role="ancho-75"]
+image::images/prbc_0212.png[Línea vertical]
+
+==== Cierre
+
+Esta es quizás la propiedad más fácil de demostrar, ya que en primer lugar generamos el grupo sumando _G_ una y otra vez.
+Por lo tanto, si tenemos dos elementos diferentes que se ven así:
+
+++++
+<ul class="simplelist">
+<li><em>aG</em> + <em>bG</em></li>
+</ul>
+++++
+
+
+Sabemos que el resultado va a ser:
+
+++++
+<ul class="simplelist">
+<li>(<em>a</em> + <em>b</em>)<em>G</em></li>
+</ul>
+++++
+
+
+¿Cómo sabemos si este elemento está en el grupo?
+Si _a+b < n_ (donde _n_ es el orden del grupo), entonces sabemos que está en el grupo por definición.
+Si _a_+_b_ >= _n_, entonces sabemos que _a_ < _n_ y _b_ < _n_, por lo que _a_+_b_ < 2__n__, por lo que _a_+_b_-_n_ < _n_:
+
+++++
+<ul class="simplelist">
+<li>(<em>a</em> + <em>b</em> - <em>n</em>)<em>G</em> = <em>aG</em> + <em>bG</em> - <em>nG</em> = <em>aG</em> + <em>bG</em> - 0 = <em>aG</em> + <em>bG</em></li>
+</ul>
+++++
+
+Más generalmente, (__a__ + __b__)__G__ = ((__a__ + _b_) % __n__)__G__, donde _n_ es el orden del grupo.
+
+Así que sabemos que este elemento está en el grupo, demostrando la clausura.
+
+==== Invertibilidad
+
+La invertibilidad es fácil de representar (<<cada punto es invertible al tomar la reflexión sobre el eje x>>).
+
+[[cada_punto_es_invertible_al_tomar_la_reflexión_sobre_el_eje_x]]
+Cada punto es invertible al tomar la reflexión sobre el eje x
+[role="anchura-75"]
+image::images/prbc_0212.png[Línea vertical]
+
+Matemáticamente, sabemos que si _aG_ está en el grupo, (__n__ - __a__)__G__ también está en el grupo.
+Se pueden sumar para obtener __aG__ + (__n__ - __a__)__G__ = (__a__ + __n__ - __a__)__G__ = __nG_ = 0.
+
+[role="pagebreak-before"]
+==== Conmutatividad
+
+Sabemos por la adición de puntos que _A_ + _B_ = _B_ + _A_ (<<la línea que pasa por los puntos no cambia>>).
+
+[[la_línea_que_pasa_por_los_puntos_no_cambia]]
+La línea que pasa por los puntos no cambia
+[role="ancho-75"]
+image::images/prbc_0214.png[Suma de puntos]
+
+Esto significa que _aG_ + _bG_ = _bG_ + _aG_, lo que demuestra la conmutatividad.
+
+[role="pagebreak-before"]
+==== Asociatividad
+
+Sabemos por adición de puntos que _A_ + (_B_ + _C_) = (_A_ + _B_) + _C_ (véanse las figuras de paso:[<a data-type="xref" data-xrefstyle="select:labelnumber" href="#a_b_c_case_one">#a_b_c_case_one</a> y <a data-type="xref" data-xrefstyle="select:labelnumber" href="#a_b_c_case_two">#a_b_c_case_two</a>].
+
+[[a_b_c_case_one]]
+.(A + B) + C: A + B se calcula primero antes de añadir C
+[role="anchura-75"]
+image::images/prbc_0216.png[Caso 1]
+
+[[a_b_c_case_two]]
+.A + (B + C): B + C se añade primero antes de añadir A (nótese que esto da como resultado el mismo punto que en <<a_b_c_case_one>>)
+[role="width-75"]
+image::images/prbc_0217.png[Caso 2]
+
+Por lo tanto, _aG_ + (_bG_ + _cG_) = (_aG_ + _bG_) + _cG_, demostrando la asociatividad.
+
+include::code-ch03/answers.py[tag=exercise5,indent=0]
+
+[role="pagebreak-before"]
+=== Codificación de la multiplicación escalar
+
+Lo que intentamos hacer con el ejercicio 5 es lo siguiente:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo5]
+----
+
+Queremos ser capaces de multiplicar escalarmente el punto con algún número.
+Afortunadamente, hay un método en Python llamado `__rmul__` que puede ser utilizado para anular la multiplicación frontal.
+Una implementación ingenua se parece a esto:
+
+[fuente,python]
+----
+clase Punto:
+    ...
+    def __rmul__(self, coeficiente):
+        product = self.__class__(None, None, self.a, self.b) # <1>
+        for _ in range(coeficiente): # <2>
+            producto += auto
+        devolver producto
+----
+<1> Empezamos el `producto` en 0, que en el caso de la suma de puntos es el punto en el infinito.
+<2> Hacemos un bucle de `coeficiente` veces y añadimos el punto cada vez.
+
+Esto está bien para coeficientes pequeños, pero ¿qué pasa si tenemos un coeficiente muy grande, es decir, un número tan grande que no podremos salir de este bucle en un tiempo razonable?
+Por ejemplo, un coeficiente de 1 billón va a llevar mucho tiempo.
+
+Existe una técnica genial llamada _expansión binaria_ que nos permite realizar la multiplicación en bucles log~2~(_n_), lo que reduce drásticamente el tiempo de cálculo para los números grandes.
+Por ejemplo, 1 billón son 40 bits en binario, así que sólo tenemos que hacer 40 bucles para un número que generalmente se considera muy grande:
+
+[fuente,python]
+----
+clase Punto:
+    ...
+include::code-ch03/ecc.py[tag=source3]
+----
+<1> `current` representa el punto que está en el bit actual.
+La primera vez que pasa por el bucle representa 1 &#xd7; +self+; la segunda vez será 2 &#xd7; +self+, la tercera vez 4 &#xd7; +self+, luego 8 &#xd7; +self+, y así sucesivamente.
+Doblamos el punto cada vez.
+En binario los coeficientes son 1, 10, 100, 1000, 10000, etc.
+<2> Empezamos el resultado en 0, o el punto en el infinito.
+<3> Miramos si el bit más a la derecha es un 1.
+Si lo es, entonces sumamos el valor del bit actual.
+<4> Tenemos que doblar el punto hasta que pasemos el tamaño del coeficiente.
+<5> Desplazamos el coeficiente a la derecha.
+
+Esta es una técnica avanzada. Si no entiendes los operadores a nivel de bits, piensa en representar el coeficiente en binario y sólo sumar el punto donde hay 1's.
+
+Con `__add__` y `__rmul__`, podemos empezar a definir algunas curvas elípticas más complicadas.
+
+[[definingCurveBC]]
+=== Definiendo la Curva para Bitcoin
+
+Aunque hemos utilizado primos relativamente pequeños para dar ejemplos, no estamos limitados a números tan pequeños.
+Los números primos pequeños significan que podemos utilizar un ordenador para buscar en todo el grupo.
+Si el grupo tiene un tamaño de 301, el ordenador puede hacer fácilmente 301 cálculos para invertir la multiplicación escalar o romper el logaritmo discreto.
+
+¿Pero qué pasaría si hiciéramos el primo más grande?
+Resulta que podemos elegir primos mucho más grandes que los que hemos estado utilizando.
+La seguridad de la criptografía de la curva elíptica depende de que los ordenadores no puedan atravesar una fracción apreciable del grupo.
+
+Una curva elíptica para criptografía de clave pública se define con el siguiente paso:[<span class="keep-together">parámetros</span>]:
+
+* Especificamos los _a_ y _b_ de la curva __y__^2^ = __x__^3^ + _ax_ + _b_.
+* Especificamos el primo del campo finito, _p_.
+* Especificamos las coordenadas _x_ y _y_ del punto generador _G_.
+* Especificamos el orden del grupo generado por _G_, _n_.
+
+Estos números se conocen públicamente y juntos forman la curva criptográfica.
+Hay muchas curvas criptográficas y tienen diferentes compensaciones de seguridad/conveniencia, pero la que más nos interesa es la que utiliza Bitcoin: secp256k1.
+Los parámetros para secp256k1 son estos:
+
+* _a_ = 0, _b_ = 7, haciendo la ecuación __y__^2^ = __x__^3^ + 7
+* _p_ = 2^256^ - 2^32^ - 977
+* __G~x~__ = pass:[<br/>]0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+
+* __G~y~__ = pass:[<br/>]0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8
+
+
+
+__G~x~__ se refiere a la coordenada _x_ del punto _G_ y __G~y~__ a la coordenada _y_.
+Los números que empiezan por 0x son números hexadecimales.
+
+Hay algunas cosas que hay que tener en cuenta sobre esta curva. En primer lugar, la ecuación es relativamente sencilla.
+Muchas curvas tienen valores _a_ y _b_ mucho mayores.
+
+En segundo lugar, _p_ está muy cerca de 2^256^.
+Esto significa que la mayoría de los números menores de 2^256^ están en el campo primo, y por tanto cualquier punto de la curva tiene coordenadas _x_ e _y_ que son expresables en 256 bits cada una.
+_n_ también está muy cerca de 2^256^.
+Esto significa que cualquier múltiplo escalar también puede expresarse en 256 bits.
+
+En tercer lugar, 2^256^ es un número enorme (ver barra lateral).
+Sorprendentemente, cualquier número inferior a 2^256^ puede almacenarse en 32 bytes.
+Esto significa que podemos almacenar la clave privada con relativa facilidad.
+
+¿Cómo de grande es 2^256^?
+****
+2^256^ no parece tan grande porque podemos expresarlo sucintamente, pero en realidad es un número enorme.
+Para que te hagas una idea, aquí tienes algunas escalas relativas:
+
+++++
+<dl><dt class="plain">2<sup>256</sup> ~ 10<sup>77</sup></dt>
+<dd>
+<ul>
+<li>Número de átomos en y sobre la Tierra ~ 10<sup>50</sup></li>
+<li>Número de átomos en el sistema solar ~ 10<sup>57</sup></li>
+<li>Número de átomos en la Vía Láctea ~ 10<sup>68</sup></li>
+<li>Número de átomos en el universo ~ 10<sup>80</sup></li></ul>
+</dd></dl>
+++++
+
+Un trillón (10^12^) de ordenadores realizando un trillón de cálculos cada trillonésima (10^-12^) de segundo durante un trillón de años sigue siendo menos que 10^56^ cálculos.
+
+Piensa en encontrar una clave privada de esta manera: hay tantas claves privadas posibles en Bitcoin como átomos en mil millones de galaxias.
+****
+
+==== Trabajando con secp256k1
+
+Como conocemos todos los parámetros de secp256k1, podemos verificar en Python si el punto generador, _G_, está en la curva __y__^2^ = __x__^3^ + 7:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo6]
+----
+
+Además, podemos verificar en Python si el punto generador, _G_, tiene el orden _n_:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo7]
+----
+
+Ya que conocemos la curva en la que vamos a trabajar, es un buen momento para crear una subclase en Python para trabajar exclusivamente con los parámetros de secp256k1.
+Definiremos los objetos equivalentes `FieldElement` y `Point`, pero específicos para la curva secp256k1.
+Empecemos por definir el campo en el que vamos a trabajar:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source4]
+...
+include::code-ch03/ecc.py[tag=source5]
+----
+
+Estamos subclasificando la clase `FieldElement` para no tener que pasar _P_ todo el tiempo.
+También queremos mostrar un número de 256 bits de forma consistente rellenando 64 caracteres para que podamos ver cualquier cero a la izquierda.
+
+Del mismo modo, podemos definir un punto en la curva secp256k1 y llamarlo `S256Point`:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source6]
+...
+include::code-ch03/ecc.py[tag=source7]
+----
+<1> En el caso de que inicialicemos con el punto en el infinito, tenemos que dejar pasar _x_ y _y_ directamente en lugar de utilizar la clase `S256Field`.
+
+Ahora tenemos una forma más fácil de inicializar un punto en la curva secp256k1, sin tener que definir +a+ y +b+ cada vez como tenemos que hacer con la clase `Punto`.
+
+También podemos definir `__rmul__` un poco más eficientemente, ya que conocemos el orden del grupo, _n_.
+Como estamos codificando en Python, lo nombraremos con mayúscula `N` para dejar claro que `N` es una constante:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source9]
+...
+clase S256Punto(Punto):
+    ...
+include::code-ch03/ecc.py[tag=fuente8]
+----
+<1> Podemos mod por _n_ porque _nG_ = 0.
+Es decir, cada _n_ veces volvemos a cero o al punto en el infinito.
+
+Ahora podemos definir _G_ directamente y mantenerlo, ya que lo usaremos mucho en el futuro:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source10]
+----
+
+Ahora comprobar que el orden de _G_ es _n_ es trivial:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo8]
+----
+
+=== Criptografía de clave pública
+
+Por fin tenemos las herramientas que necesitamos para hacer operaciones de criptografía de clave pública.
+La operación de clave que necesitamos es _P_ = _eG_, que es una ecuación asimétrica.
+Podemos calcular fácilmente _P_ cuando conocemos _e_ y _G_, pero no podemos calcular fácilmente _e_ cuando conocemos _P_ y _G_.
+Este es el problema del logaritmo discreto descrito anteriormente.
+
+La dificultad del registro discreto será esencial para entender los algoritmos de firma y verificación.
+
+Generalmente, llamamos _e_ a la _clave privada_ y _P_ a la _clave pública_.
+Tenga en cuenta que la clave privada es un único número de 256 bits y la clave pública es una coordenada (_x_,_y_), donde _x_ e _y_ son _cada uno_ números de 256 bits.
+
+=== Firma y verificación
+
+Para explicar el motivo de la existencia de la firma y la verificación, imagina este escenario.
+Quieres demostrar que eres un arquero realmente bueno, como en el nivel en el que puedes acertar a cualquier diana que quieras en un radio de 500 yardas, en lugar de ser capaz de acertar a cualquier diana en particular.
+
+Ahora bien, si alguien pudiera observarle e interactuar con usted, demostrar esto sería fácil.
+Tal vez colocarían a su hijo a 400 metros de distancia con una manzana en la cabeza y le retarían a acertar a esa manzana con una flecha.
+Usted, que es un arquero muy bueno, podría hacerlo y demostrar su pericia.
+La diana, si la especifica el retador, hace que tu habilidad con el arco sea fácil de verificar.
+
+Desgraciadamente, esto no se adapta muy bien.
+Si, por ejemplo, quisieras probar esto a 10 personas, tendrías que disparar 10 flechas diferentes a 10 objetivos diferentes de 10 retos diferentes.
+Podrías intentar hacer algo como que 10 personas te vieran disparar una sola flecha, pero como no pueden elegir todos el blanco, nunca podrán estar seguros de que no eres simplemente bueno dando a un blanco en particular en lugar de un blanco arbitrario.
+Lo que queremos es algo que puedas hacer una vez, que no requiera interacción con los verificadores, pero que demuestre que eres un buen arquero que puede dar a cualquier objetivo.
+
+Si, por ejemplo, se limitara a disparar una flecha a una diana de su elección, la gente que observara después no estaría necesariamente convencida.
+Al fin y al cabo, es posible que hayas pintado la diana alrededor del lugar donde cayó la flecha.
+Entonces, ¿qué se puede hacer?
+
+Aquí hay una cosa muy inteligente que puedes hacer.
+Inscribe en la punta de la flecha la posición del objetivo que vas a golpear ("manzana encima de la cabeza de mi hijo") y luego golpea ese objetivo con tu flecha.
+Ahora cualquiera que vea el objetivo puede tomar una máquina de rayos X y mirar la punta de la flecha incrustada y ver que la punta efectivamente dice exactamente dónde iba a golpear.
+Está claro que la punta tuvo que ser inscrita antes de disparar la flecha, por lo que esto puede demostrar que realmente eres un buen arquero (siempre que el blanco real no sea uno al que hayas practicado darle una y otra vez).
+
+Esta es la misma técnica que utilizamos con la firma y la verificación, excepto que lo que estamos demostrando no es que seamos buenos arqueros, sino que conocemos un número secreto.
+Queremos demostrar la posesión del secreto sin revelar el propio secreto.
+Lo hacemos poniendo el objetivo en nuestro cálculo y dando en el blanco.
+
+En última instancia, esto se utilizará en las transacciones, lo que demostrará que los propietarios legítimos de los secretos están gastando los bitcoins.
+
+==== Inscribir el objetivo
+
+La inscripción del objetivo depende del _algoritmo de firmam_, y en nuestro caso ese algoritmo se llama Algoritmo de Firma Digital de Curva Elíptica, o ECDSA para abreviar.
+
+El secreto en nuestro caso es _e_ satisfacer lo siguiente:
+
+++++
+<ul class="simplelist">
+<li><em>eG</em> = <em>P</em></li>
+</ul>
+++++
+
+donde _P_ es la clave pública y _e_ es la clave privada.
+
+El objetivo al que vamos a apuntar es un número aleatorio de 256 bits, _k_.
+Entonces hacemos esto:
+
+++++
+<ul class="simplelist">
+<li><em>kG</em> = <em>R</em></li>
+</ul>
+++++
+
+
+_R_ es ahora el objetivo al que apuntamos.
+De hecho, sólo nos va a importar la coordenada _x_ de _R_, que llamaremos _r_.
+Ya habrás adivinado que _r_ significa aquí _random_.
+
+Afirmamos en este punto que la siguiente ecuación es equivalente al problema del logaritmo discreto:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> = <em>kG</em></li>
+</ul>
+++++
+
+donde _k_ fue elegido al azar, _u_,_v_ ≠ 0 pueden ser elegidos por el firmante, y _G_ y _P_ son conocidos. Esto se debe al hecho de que:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> = <em>kG</em> implica <em>vP</em> = (<em>k</em> - <em>u</em>)<em>G</em></li>.
+</ul>
+++++
+
+Como _v_ ≠ 0, podemos dividir por el múltiplo escalar _v_:
+
+++++
+<ul class="simplelist">
+<li><em>P</em> = ((<em>k</em> - <em>u</em>)/<em>v</em>)<em>G</em></li>
+</ul>
+++++
+
+
+Si sabemos _e_, tenemos:
+
+++++
+<ul class="simplelist">
+<li><em>eG</em> = ((<em>k</em> - <em>u</em>)/<em>v</em>)<em>G</em> o <em>e</em> = (<em>k</em> - <em>u</em>)/<em>v</em>.
+</ul>
+++++
+
+Esto significa que cualquier combinación (_u_,_v_) que satisfaga la ecuación anterior será suficiente.
+
+Ahora supongamos que no conocemos _e_, pero podemos resolver __uG + vP = kG__ con alguna combinación (_u_,_v_).
+Entonces __e = (k-u)/v__ da una solución a _P_ = _eG_ conociendo sólo _P_ y _G_.
+En otras palabras, habríamos roto el problema del logaritmo discreto.
+
+Esto significa que para proporcionar un _u_ y un _v_ correctos, tenemos que romper el problema del registro discreto o conocer el secreto _e_.
+Dado que asumimos que el registro discreto es difícil, podemos decir que se supone que _e_ es conocido por el que ha dado _u_ y _v_.
+
+Una cosa sutil de la que no hemos hablado es que tenemos que incorporar el propósito de nuestro disparo.
+Se trata de un contrato que se cumple como resultado de disparar al blanco.
+Guillermo Tell, por ejemplo, disparaba para poder salvar a su hijo (dispara al blanco y consigue salvar a su hijo).
+Se puede imaginar que habría otras razones para dar al blanco y otras "recompensas" que la persona que da al blanco recibiría.
+Esto hay que incorporarlo a nuestras ecuaciones.
+
+En la jerga de la firma/verificación, esto se llama el _hash de la firma_.
+Un hash es una función determinista que convierte datos arbitrarios en datos de tamaño fijo.
+Se trata de una huella digital del mensaje que contiene la intención del tirador, que cualquiera que verifique el mensaje ya conoce.
+Lo denotamos con la letra _z_.
+Esto se incorpora a nuestro cálculo _uG_ + _vP_ de esta manera:
+
+++++
+<ul class="simplelist">
+<li><em>u</em> = <em>z</em>/<em>s</em>, <em>v</em> = <em>r</em>/<em>s</em>/li>.
+</ul>
+++++
+
+Como _r_ se utiliza en el cálculo de _v_, ahora tenemos inscrita la punta de la flecha.
+También tenemos la intención del tirador incorporada en _u_, por lo que tanto el motivo del disparo como el objetivo al que se apunta forman ahora parte de la ecuación.
+
+Para que la ecuación funcione, podemos calcular _s_:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> = <em>R</em> = <em>kG</em></li>
+<li><em>uG</em> + <em>veG</em> = <em>kG</em></li>
+<li><em>u</em> + <em>ve</em> = <em>k</em></li>
+<li><em>z</em>/<em>s</em> + <em>re</em>/<em>s</em> = <em>k</em></li>
+<li>(<em>z</em> + <em>re</em>)/<em>s</em> = <em>k</em></li>
+<li><em>s</em> = (<em>z</em> + <em>re</em>)/<em>k</em></li>
+</ul>
+++++
+
+Esta es la base del algoritmo de firma, y los dos números de una firma son _r_ y _s_.
+
+La verificación es sencilla:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> donde <em>u</em>,<em>v</em> ≠ 0</li>
+<li><em>uG</em> + <em>vP</em> = (<em>z</em>/<em>s</em>)<em>G</em> + (<em>re</em>/<em>s</em>)<em>G</em> = ((<em>z</em> + <em>re</em>)/<em>s</em>)<em>G</em> = ((<em>z</em> + <em>re</em>)/((<em>z</em> + <em>re</em>)/<em>k</em>))<em>G</em> = <em>kG</em> = (<em>r</em>,<em>y</em>)</li>
+</ul>
+++++
+
+[ADVERTENCIA]
+Por qué no revelamos `k`
+====
+Llegados a este punto, puede que te preguntes por qué no revelamos _k_ y, en cambio, revelamos la coordenada _x_ de _R_, o _r_.
+Si reveláramos _k_, entonces:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> = <em>R</em></li>
+<li><em>uG</em> + <em>veG</em> = <em>kG</em></li>
+<li><em>kG</em> - <em>uG</em> = <em>veG</em></li>
+<li>(<em>k</em> - <em>u</em>)<em>G</em> = <em>veG</em></li>
+<li>(<em>k</em> - <em>u</em>) = <em>ve</em></li>
+<li>(<em>k</em> - <em>u</em>)/<em>v</em> = <em>e</em></li>
+</ul>
+++++
+
+significa que nuestro secreto sería revelado, lo que anularía todo el propósito de la firma.
+Sin embargo, podemos revelar _R_.
+
+Vale la pena mencionarlo de nuevo: asegúrate de que estás utilizando números verdaderamente aleatorios para _k_, ya que incluso revelar accidentalmente _k_ para una firma conocida equivale a revelar tu secreto y perder tus fondos.
+====
+
+==== Verificación en profundidad
+
+Las firmas firman un valor de longitud fija (nuestro "contrato"); en nuestro caso, algo de 32 bytes.
+El hecho de que 32 bytes sean 256 bits no es una coincidencia, ya que lo que estamos firmando será un escalar para _G_.
+
+Para garantizar que lo que estamos firmando tiene 32 bytes, primero hacemos un hash del documento.
+En Bitcoin, la función hash es hash256, o dos rondas de sha256.
+Esto garantiza que lo que estamos firmando es exactamente 32 bytes.
+Llamaremos al resultado del hash el _hash de la firma_, o _z_.
+
+La firma que estamos verificando tiene dos componentes, (_r_,_s_).
+_r_ es la coordenada _x_ de algún punto _R_ al que volveremos.
+La fórmula para _s_ es como la anterior:
+
+++++
+<ul class="simplelist">
+<li><em>s</em> = (<em>z</em>+<em>re</em>)/<em>k</em></li>
+</ul>
+++++
+
+Tenga en cuenta que conocemos _e_ (_P_ = _eG_, o lo que estamos demostrando que sabemos en primer lugar), conocemos _k_ (_kG_ = _R_, ¿recuerda?), y conocemos _z_.
+
+Ahora construiremos _R_ = _uG_ + _vP_ definiendo _u_ y _v_ de esta manera:
+
+++++
+<ul class="simplelist">
+<li><em>u</em> = <em>z</em>/<em>s</em></li>
+<li><em>v</em> = <em>r</em>/<em>s</em></li>
+</ul>
+++++
+
+Así:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> = (<em>z</em>/<em>s</em>)<em>G</em> + (<em>r</em>/<em>s</em>)<em>P</em> = (<em>z</em>/<em>s</em>)<em>G</em> + (<em>re</em>/<em>s</em>)<em>G</em> = ((<em>z</em> + <em>re</em>)/<em>s</em>)<em>G</em></li>
+</ul>
+++++
+
+Sabemos que _s_ = (_z_ + _re_)/_k_, entonces:
+
+++++
+<ul class="simplelist">
+<li><em>uG</em> + <em>vP</em> = ((<em>z</em> + <em>re</em>) / ((<em>z</em> + <em>re</em>)/<em>k</em>))<em>G</em> = <em>kG</em> = <em>R</em></li>
+</ul>
+++++
+
+Hemos elegido con éxito _u_ y _v_ de tal manera que generamos _R_ como pretendíamos.
+Además, hemos utilizado _r_ en el cálculo de _v_, lo que demuestra que sabíamos cuál sería _R_.
+La única manera de conocer los detalles de _R_ de antemano es si conocemos _e_.
+
+A saber, estos son los pasos:
+
+1. Nos dan (_r_,_s_) como la firma, _z_ como el hash de lo firmado, y _P_ como la clave pública (o punto público) del firmante.
+2. Calculamos _u_ = __z__/__s__, _v_ = __r__/__s__.
+3. Calculamos _uG_ + _vP_ = _R_.
+4. Si la coordenada _x_ de __R__ es igual a _r_, la firma es válida.
+
+[NOTA]
+¿Por qué dos rondas de sha256?
+====
+El cálculo de _z_ requiere dos rondas de sha256, o hash256.
+Te preguntarás por qué hay dos rondas cuando sólo es necesaria una para obtener un número de 256 bits.
+La razón es la seguridad.
+
+Hay un ataque de colisión de hash bien conocido en SHA-1 llamado _ataque de cumpleaños_ que hace que encontrar colisiones sea mucho más fácil.
+https://security.googleblog.com/2017/02/announcing-first-sha1-collision.html[Google encontró una colisión de SHA-1] usando algunas modificaciones de un ataque de cumpleaños y muchas otras cosas en 2017.
+Usar SHA-1 dos veces, o _doble SHA-1_, es la forma de derrotar o ralentizar algunas formas de este ataque.
+
+Dos rondas de sha256 no evitan necesariamente todos los posibles ataques, pero hacer dos rondas es una defensa contra algunos posibles pases:[<span class="keep-together">debilidades</span>].
+====
+
+==== Verificación de una firma
+
+Ahora podemos verificar una firma utilizando algunas de las primitivas que tenemos:
+
+[fuente,python]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo9]
+----
+<1> Nótese que utilizamos el pequeño teorema de Fermat para 1/_s_, ya que _n_ es primo.
+<2> _u_ = _z_/_s_.
+<3> _v_ = _r_/_s_.
+<4> _uG_ + _vP_ = (_r_,_y_).
+Tenemos que comprobar que la coordenada _x_ es _r_.
+
+include::code-ch03/answers.py[tag=exercise6,indent=0]
+
+==== Programación Verificación de firmas
+
+Ya tenemos una clase `S256Point`, que es el punto público de la clave privada.
+Creamos una clase `Signature` que alberga los valores _r_ y _s_:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source11]
+----
+
+Haremos más cosas con esta clase en <<capítulo_serialización>>.
+
+Ahora podemos escribir el método `verify` en `S256Point` basado en esto:
+
+[fuente,python]
+----
+clase S256Punto(Punto):
+    ...
+include::code-ch03/ecc.py[tag=source12]
+----
+<1> `s_inv` (1/_s_) se calcula utilizando el pequeño teorema de Fermat sobre el orden del grupo, _n_, que es primo.
+<2> _u_ = _z_/_s_.
+Nótese que podemos mod por _n_ ya que ese es el orden del grupo.
+<3> _v_ = _r_/_s_.
+Tenga en cuenta que podemos mod por _n_ ya que ese es el orden del grupo.
+<4> _uG_ + _vP_ debe ser _R_.
+<5> Comprobamos que la coordenada _x_ es _r_.
+
+Así, dada una clave pública que es un punto de la curva secp256k1 y un hash de firma, _z_, podemos verificar si una firma es válida o no.
+
+==== Firma en profundidad
+
+Dado que sabemos cómo debería funcionar la verificación, firmar es sencillo.
+El único paso que falta es averiguar qué _k_, y por tanto _R_ = _kG_, hay que utilizar.
+Para ello, elegimos un _k_ al azar.
+
+El procedimiento de firma es el siguiente:
+
+1. Nos dan _z_ y conocemos _e_ tal que _eG_ = _P_.
+2. Elegir un _k_ al azar.
+3. Calcular _R_ = _kG_ y _r_ = coordenada _x_ de _R_.
+4. Calcular _s_ = (_z_ + _re_)/_k_.
+5. La firma es (_r_,_s_).
+
+Nótese que la clave pública (pubkey) _P_ tiene que ser transmitida a quien quiera verificarla, y _z_ debe ser conocida por el verificador.
+Más adelante veremos que _z_ se calcula y _P_ se envía junto con la firma.
+
+==== Crear una firma
+
+Ahora podemos crear una firma.
+
+Cuidado con la generación de números aleatorios
+[ADVERTENCIA]
+====
+Tenga en cuenta que usar algo como la biblioteca `random` de Python para hacer criptografía no es generalmente una buena idea.
+Esta biblioteca es sólo para propósitos de enseñanza, así que por favor no use nada del código que se explica aquí para propósitos de producción.
+====
+
+Lo hacemos utilizando algunas de las primitivas que tenemos:
+
+[fuente,pycon]
+----
+include::code-ch03/ejemplos.py[tag=ejemplo10]
+----
+<1> Este es un ejemplo de "cartera cerebral", que es una forma de mantener la clave privada en tu cabeza sin tener que memorizar algo demasiado difícil.
+Por favor, no uses esto para un secreto real.
+<2> Este es el hash de la firma, o hash del mensaje que estamos firmando.
+<3> Vamos a utilizar un _k_ fijo aquí para fines de demostración.
+<4> _kG_ = (_r_,_y_), así que tomamos la coordenada _x_ solamente.
+<5> _s_ = (_z_ + _re_)/_k_.
+Podemos mod por _n_ porque sabemos que es un grupo cíclico de orden _n_.
+<6> El punto público debe ser conocido por el verificador.
+
+include::code-ch03/answers.py[tag=exercise7,indent=0]
+
+==== Programación de la señalización de mensajes
+
+Para programar la firma de mensajes, creamos ahora una clase `PrivateKey`, que albergará nuestro secreto:
+
+[fuente,python]
+----
+include::code-ch03/ecc.py[tag=source13]
+----
+<1> Mantenemos alrededor de la clave pública, `self.point`, por conveniencia.
+
+A continuación, creamos el método `sign`:
+
+[fuente,python]
+----
+from random import randint
+...
+clase PrivateKey:
+...
+    def sign(self, z):
+        k = randint(0, N) # <1>
+        r = (k*G).x.num # <2>
+        k_inv = pow(k, N-2, N) # <3>
+        s = (z + r*self.secret) * k_inv % N # <4>
+        si s > N/2:  # <5>
+            s = N - s
+        return Firma(r, s) # <6>
+----
+<1> `randint` elige un número entero aleatorio de ++[0,__n__)++.
+Por favor, no use esta función en producción, porque el número aleatorio de esta biblioteca no es lo suficientemente aleatorio.
+<2> _r_ es la coordenada _x_ de _kG_.
+<3> Volvemos a utilizar el pequeño teorema de Fermat, y _n_, que es primo.
+<4> _s_ = (_z_ + _re_)/_k_.
+<5> Resulta que usar el valor bajo de _s_ hará que los nodos retransmitan nuestras transacciones.
+Esto es por razones de maleabilidad.
+<6> Devolvemos un objeto `Signature` de la clase definida anteriormente.
+
+[role="pagebreak-before less_space"]
+La importancia de una "k" única
+****
+Hay una regla importante en las firmas que utilizan un componente aleatorio como el que tenemos aquí: la _k_ tiene que ser única por firma.
+Es decir, no puede ser reutilizado.
+De hecho, una _k_ que se reutilice hará que reveles tu secreto.
+¿Por qué?
+
+Si nuestro secreto es _e_ y estamos reutilizando _k_ para firmar __z__~1~ y __z__~2~:
+
+++++
+<ul class="simplelist">
+<li><em>kG</em> = (<em>r</em>,<em>y</em>)</li>
+<li><em>s</em><sub>1</sub> = (<em>z</em><sub>1</sub> + <em>re</em>) / <em>k</em>, <em>s</em><sub>2</sub> = (<em>z</em><sub>2</sub> + <em>re</em>) / <em>k</em></li>
+<li><em>s</em><sub>1</sub>/<em>s</em><sub>2</sub> = (<em>z</em><sub>1</sub> + <em>re</em>) / (<em>z</em><sub>2</sub> + <em>re</em>)</li>
+<li><em>s</em><sub>1</sub>(<em>z</em><sub>2</sub> + <em>re</em>) = <em>s</em><sub>2</sub>(<em>z</em><sub>1</sub> + <em>re</em>)</li>
+<li><em>s</em><sub>1</sub><em>z</em><sub>2</sub> + <em>s</em><sub>1</sub><em>re</em> = <em>s</em><sub>2</sub><em>z</em><sub>1</sub> + <em>s</em><sub>2</sub><em>re</em></li>
+<li><em>s</em><sub>1</sub><em>re</em> - <em>s</em><sub>2</sub><em>re</em> = <em>s</em><sub>2</sub><em>z</em><sub>1</sub> - <em>s</em><sub>1</sub><em>z</em><sub>2</sub></li>
+<li><em>e</em> = (<em>s</em><sub>2</sub><em>z</em><sub>1</sub> - <em>s</em><sub>1</sub><em>z</em><sub>2</sub>) / (<em>rs</em><sub>1</sub> - <em>rs</em><sub>2</sub>)</li>
+</ul>
+++++
+
+Si alguien ve ambas firmas, puede usar esta fórmula y encontrar nuestro secreto.
+El https://arstechnica.com/gaming/2010/12/ps3-hacked-through-poor-implementation-of-cryptography/[PlayStation 3 hack] de 2010 se debió a la reutilización del valor _k_ en múltiples firmas.
+
+Para combatir esto, existe un estándar de generación de _k_ determinista que utiliza el secreto y _z_ para crear un _k_ único y determinista cada vez.
+La especificación se encuentra en https://tools.ietf.org/html/rfc6979[RFC 6979] y el código cambia para tener este aspecto:
+
+[fuente,python]
+----
+clase PrivateKey:
+...
+include::code-ch03/ecc.py[tag=source14]
+----
+<1> Estamos utilizando el _k_ determinista en lugar de uno aleatorio.
+Todo lo demás sobre `signo` permanece igual.
+<2> Este algoritmo devuelve un candidato que es adecuado.
+
+Un _k_ determinista será único con una probabilidad muy alta.
+Esto se debe a que sha256 es resistente a las colisiones, y hasta la fecha no se ha encontrado ninguna.
+
+Otra ventaja, desde el punto de vista de las pruebas, es que la firma para un determinado _z_ y la misma clave privada será siempre la misma.
+Esto hace que la depuración sea mucho más fácil y que las pruebas unitarias sean mucho más fáciles de escribir.
+Además, las transacciones que usan _k_ determinista crearán la misma transacción cada vez, ya que la firma no cambiará.
+Esto hace que las transacciones sean menos maleables (más sobre esto en <<capítulo_segwit>>).
+
+****
+
+### Conclusión
+
+Hemos cubierto la criptografía de curva elíptica y ahora podemos demostrar que conocemos un secreto firmando algo. También podemos verificar que la persona con el secreto realmente firmó un mensaje.
+Incluso si no lees otra página de este libro, habrás aprendido a implementar lo que antes se consideraba https://en.wikipedia.org/wiki/Export_of_cryptography_from_the_United_States["municiones de grado armamentístico"].
+Este es un paso importante en tu viaje y será esencial para el resto del libro.
+
+Ahora pasamos a serializar muchas de estas estructuras para poder almacenarlas en el disco y enviarlas por la red.

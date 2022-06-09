@@ -1,0 +1,591 @@
+[[capítulo_curvas_elípticas]]
+== Curvas elípticas
+
+[.lead]
+En este capítulo vamos a aprender sobre las curvas elípticas.
+En <<capítulo_criptografía_de_curvas_elípticas>>, combinaremos las curvas elípticas con campos finitos para hacer criptografía de curvas elípticas.
+
+Al igual que los campos finitos, las curvas elípticas pueden parecer intimidantes si no las has visto antes.
+Pero, de nuevo, las matemáticas reales no son muy difíciles.
+La mayor parte de lo que necesitas saber sobre las curvas elípticas te lo podrían haber enseñado después del álgebra.
+En este capítulo, exploraremos qué son estas curvas y qué podemos hacer con ellas.
+
+=== Definición
+
+Las curvas elípticas son como muchas ecuaciones que has visto desde el pre-álgebra.
+Tienen _y_ en un lado y _x_ en el otro, de alguna forma.
+Las curvas elípticas tienen una forma como esta:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sup>2</sup> = <em>x</em><sup>3</sup> + <em>ax</em> + <em>b</em></li>
+</ul>
+++++
+
+Has trabajado con otras ecuaciones que se parecen.
+Por ejemplo, es probable que hayas aprendido la ecuación lineal en la etapa de pre-álgebra:
+
+++++
+<ul class="simplelist">
+<li><em>y</em> = <em>mx</em> + <em>b</em></li>
+</ul>
+++++
+
+Incluso puedes recordar que _m_ tiene aquí el nombre de _pendiente_ y _b_ es la _intersección_.
+También puedes graficar ecuaciones lineales, como se muestra en <<ecuación_lineal>>.
+
+[[ecuación_lineal]]
+Ecuación lineal
+image::images/prbc_0201.png[Ecuación lineal]
+
+Del mismo modo, probablemente estés familiarizado con la ecuación cuadrática y su gráfica (<<ecuación_cuadrática>>):
+
+++++
+<ul class="simplelist">
+<li><em>y</em> = <em>ax</em><sup>2</sup> + <em>bx</em> + <em>c</em></li>.
+</ul>
+++++
+
+Y en algún momento alrededor del álgebra, se hicieron órdenes aún más altos de __x__-algo llamado la ecuación cúbica y su gráfico (<<ecuación_cúbica>>):
+
+++++
+<ul class="simplelist">
+<li><em>y</em> = <em>ax</em><sup>3</sup> + <em>bx</em><sup>2</sup> + <em>cx</em> + <em>d</em></li>.
+</ul>
+++++
+
+[[ecuación_cuadrática]]
+[role="anchura-90"]
+Ecuación cuadrática
+image::images/prbc_0202.png[Ecuación cuadrática]
+
+[[cubic_equation]]
+[role="anchura-90"]
+Ecuación cúbica
+image::images/prbc_0203.png[Ecuación cúbica]
+
+Una curva elíptica no es tan diferente:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sup>2</sup> = <em>x</em><sup>3</sup> + <em>ax</em> + <em>b</em></li>
+</ul>
+++++
+
+La única diferencia real entre la curva elíptica y la curva cúbica en la <<ecuación cúbica>> es el término __y__^2^ del lado izquierdo.
+Esto tiene el efecto de hacer la gráfica simétrica sobre el eje x, como se muestra en <<curva_elíptica_continua>>.
+
+[[curva_elíptica_continua]]
+Curva elíptica continua
+[role="ancho-75"]
+image::images/prbc_0204.png[Ecuación de la curva elíptica]
+
+[role="pagebreak-before"]
+La curva elíptica también es menos empinada que la curva cúbica.
+De nuevo, esto se debe al término __y__^2^ del lado izquierdo.
+A veces, la curva puede ser incluso disjunta, como en <<curva_elíptica_disjunta>>.
+
+[[curva_elíptica_disjunta]]
+Curva elíptica disjunta
+[role="ancho-75"]
+image::images/prbc_0205.png[Ecuación de la curva elíptica]
+
+[role="pagebreak-before"]
+Por si sirve de ayuda, se puede pensar en una curva elíptica como si se tomara el gráfico de una ecuación cúbica (<<paso_1_a_ecuación_cúbica>>), se aplanara la parte que está por encima del eje x (<<paso_2_a_ecuación_cúbica>>), y luego se reflejara esa parte por debajo del eje x (<<paso_3_a_ecuación_cúbica>>).
+
+[[step_1_a_cubic_equation]]
+Paso 1: Una ecuación cúbica
+[role="ancho-75"]
+image::images/prbc_0206.png[Start]
+
+[[step_2_a_cubic_equation]]
+Paso 2: Ecuación cúbica estirada
+[role="width-50"]
+image::images/prbc_0207.png[Stretch]
+
+[[step_3_a_cubic_equation]]
+Paso 3: Reflejado sobre el eje x
+[role="width-50"]
+image::images/prbc_0208.png[Simétrico]
+
+En concreto, la curva elíptica utilizada en Bitcoin se llama _secp256k1_ y utiliza esta ecuación concreta:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sup>2</sup> = <em>x</em><sup>3</sup> + 7</li>
+</ul>
+++++
+
+La forma canónica es pass:[<em>y</em><sup>2</sup> = <em>x</em><sup>3</sup> + <em>ax</em> + <em>b</em>], por lo que la curva está definida por las constantes _a_ = 0, pass:[<span class="keep-together"><em>b</em> = 7</span>].
+Se ve como <<secp256k1_curve>>.
+
+[[secp256k1_curve]]
+.curva secp256k1
+image::images/prbc_0209.png[curva secp256k1]
+
+=== Codificación de curvas elípticas en Python
+
+Por diversas razones que se aclararán más adelante, no nos interesa la curva en sí, sino puntos concretos de la misma.
+Por ejemplo, en la curva __y__^2^ = __x__^3^ + 5__x__ + 7, nos interesa la coordenada (-1,1).
+Por tanto, vamos a definir la clase `Punto` para que sea un _punto_ en una curva concreta.
+La curva tiene la forma __y__^2^ = __x__^3^ + _ax_ + _b_, por lo que podemos definir la curva con sólo los dos números _a_ y _b_:
+
+[fuente,python]
+----
+include::code-ch02/ecc.py[tag=source1]
+----
+<1> Aquí comprobamos que el punto está realmente en la curva.
+<2> Los puntos son iguales si y sólo si están en la misma curva y tienen las mismas coordenadas.
+
+Ahora podemos crear objetos `Punto`, y obtendremos un error si el punto no está en la curva:
+
+[fuente,python]
+----
+include::code-ch02/ejemplos.py[tag=ejemplo1]
+----
+
+En otras palabras, `__init__` lanzará una excepción cuando el punto no esté en la curva.
+
+include::code-ch02/answers.py[tag=exercise1,indent=0]
+
+include::code-ch02/answers.py[tag=exercise2,indent=0]
+
+=== Suma de puntos
+
+Las curvas elípticas son útiles gracias a algo llamado _sumación de puntos_.
+La adición de puntos consiste en que podemos hacer una operación en dos de los puntos de la curva y obtener un tercer punto, también en la curva.
+Se llama _adición_ porque la operación tiene muchas de las intuiciones que asociamos con la operación matemática de la suma.
+Por ejemplo, la suma de puntos es conmutativa.
+Es decir, sumar el punto A al punto B es lo mismo que sumar el punto B al punto A.
+
+La forma de definir la adición de puntos es la siguiente.
+Resulta que para cada curva elíptica, una línea la intersectará en un punto (<<línea_interseca_en_sólo_1_punto>>) o en tres puntos (<<línea_interseca_en_3_puntos>>), excepto en un par de casos especiales.
+
+[[línea_interseca_en_solo_1_punto]]
+La línea se cruza en un solo punto
+[role="anchura-50"]
+image::images/prbc_0210.png[Línea que se cruza en un solo punto]
+
+[[line_intersects_at_3_points]]
+La línea se cruza en tres puntos
+[role="anchura-50"]
+image::images/prbc_0211.png[Línea que se cruza en tres puntos]
+
+[role="pagebreak-before"]
+Las dos excepciones son cuando una línea es exactamente vertical (<<línea_interseca_en_2_puntos_por_su_vertical>>) y cuando una línea es _tangente_ a la curva (<<línea_interseca_en_2_puntos_por_su_tangente_a_la_curva>>).
+
+[[línea_se_interseca_en_2_puntos_por_su_verticalidad]]
+La línea se cruza en dos puntos porque es vertical
+[role="ancho-50"]
+image::images/prbc_0212.png[Línea vertical]
+
+[[línea_se_interseca_en_2_puntos_por_su_tangente_a_la_curva]]
+La línea se cruza en dos puntos porque es tangente a la curva
+[role="anchura-50"]
+image::images/prbc_0213.png[Línea tangente]
+
+Volveremos a hablar de estos dos casos más adelante.
+
+Podemos definir la adición de puntos utilizando el hecho de que las líneas se cruzan una o tres veces con la curva elíptica.
+Dos puntos definen una línea, así que como esa línea debe intersecar la curva una vez más, ese tercer punto reflejado sobre el eje x es el resultado de la adición de puntos.
+
+Así, para dos puntos cualesquiera __P__~1~ = (__x__~1~,__y__~1~) y __P__~2~ = (__x__~2~,__y__~2~), obtenemos __P__~1~ + __P__~2~ como sigue:
+
+* Hallar el punto que interseca la curva elíptica por tercera vez trazando una línea que pase por __P__~1~ y __P__~2~.
+* Reflejar el punto resultante sobre el eje x.
+
+Visualmente, se parece a <<punto_de_agregación>>.
+
+[[adición_de_puntos]]
+.adición de puntos
+[role="ancho-75"]
+image::images/prbc_0214.png[Adición de puntos]
+
+Primero trazamos una línea que pase por los dos puntos que vamos a sumar (_A_ y _B_).
+El tercer punto de intersección es _C_.
+A continuación, reflejamos ese punto sobre el eje x, lo que nos sitúa en el punto _A_ + _B_ en <<punto_de adición>>.
+
+Una de las propiedades que vamos a utilizar es que la suma de puntos no es fácilmente predecible.
+Podemos calcular la adición de puntos fácilmente con una fórmula, pero intuitivamente, el resultado de la adición de puntos puede estar en casi cualquier lugar dados dos puntos de la curva.
+Volviendo a la <<adición puntual>>, _A_ + _B_ está a la derecha de ambos puntos, _A_ + _C_ estaría en algún lugar entre _A_ y _C_ en el eje x, y _B_ + _C_ estaría a la izquierda de ambos puntos.
+En el lenguaje matemático, la suma de puntos es _no lineal_.
+
+=== Matemáticas de adición de puntos
+
+La adición de puntos satisface ciertas propiedades que asociamos a la adición, como:
+
+* Identidad
+* Conmutatividad
+* Asociatividad
+* Invertibilidad
+
+_Identidad_ aquí significa que hay un cero.
+Es decir, existe algún punto _I_ que, sumado a un punto _A_, da como resultado _A_:
+
+++++
+<ul class="simplelist">
+<li><em>I</em> + <em>A</em> = <em>A</em></li>
+</ul>
+++++
+
+Llamaremos a este punto el _punto en el infinito_ (las razones para ello quedarán claras en un momento).
+
+Esto está relacionado con la _invertibilidad_.
+Para algún punto _A_, hay algún otro punto -_A_ que da lugar al punto de identidad.
+Es decir:
+
+++++
+<ul class="simplelist">
+<li><em>A</em> + (-<em>A</em>) = <em>I</em></li>
+</ul>
+++++
+
+Visualmente, estos puntos son opuestos entre sí sobre el eje x en la curva (ver <<intersección_de_línea_vertical>>).
+
+[[intersección_de_líneas_verticales]]
+Intersección de líneas verticales
+[role="anchura-50"]
+image::images/prbc_0212.png[Línea vertical]
+
+Por eso llamamos a este punto el punto en el infinito.
+Tenemos un punto extra en la curva elíptica, que hace que la línea vertical intersecte la curva una tercera vez.
+
+La conmutatividad significa que _A_ + _B_ = _B_ + _A_.
+Esto es obvio ya que la línea que pasa por _A_ y _B_ intersectará la curva una tercera vez en el mismo lugar, sin importar el orden.
+
+La asociatividad significa que (_A_ + _B_) + _C_ = _A_ + (_B_ + _C_).
+Esto no es obvio y es la razón para voltear el eje x. Esto se muestra en el pase:[Figuras <a data-type="xref" href="#a_b_c_case_1" data-xrefstyle="select:labelnumber">#a_b_c_case_1</a> y
+<a data-type="xref" href="#a_b_c_case_2" data-xrefstyle="select:labelnumber">#a_b_c_case_2</a>.]
+
+Puedes ver que tanto en <<a_b_c_case_1>> como en <<a_b_c_case_2>>, el punto final es el mismo.
+En otras palabras, tenemos buenas razones para creer que (_A_ + _B_) + _C_ = _A_ + (_B_ + _C_).
+Aunque esto no demuestra la asociatividad de la adición de puntos, lo visual debería darte al menos la intuición de que esto es cierto.
+
+[[a_b_c_case_1]]
+.(A + B) + C
+[role="ancho-75"]
+image::images/prbc_0216.png[Caso 1]
+
+[[a_b_c_case_2]]
+.A + (B + C)
+[role="ancho-75"]
+image::images/prbc_0217.png[Caso 2]
+
+Para codificar la adición de puntos, vamos a dividirla en tres pasos:
+
+1. Cuando los puntos están en una línea vertical o utilizando el punto de identidad
+2. Cuando los puntos no están en una línea vertical, pero son diferentes
+3. Cuando los dos puntos son iguales
+
+=== Suma de puntos de codificación
+
+Primero manejamos el punto de identidad, o punto en el infinito.
+Como no podemos usar fácilmente el infinito en Python, usaremos el valor `None` en su lugar.
+Lo que queremos es que esto funcione:
+
+[fuente,python]
+----
+include::code-ch02/ejemplos.py[tag=ejemplo2]
+----
+
+Para que esto funcione, tenemos que hacer dos cosas. Primero, tenemos que ajustar ligeramente el método `__init__` para que no compruebe que la ecuación de la curva se satisface cuando tenemos el punto en el infinito.
+En segundo lugar, tenemos que sobrecargar el operador de suma o `__add__` como hicimos con la clase `FieldElement`:
+
+[fuente,python]
+----
+clase Punto:
+
+    def __init__(self, x, y, a, b):
+        self.a = a
+        self.b = b
+        self.x = x
+        self.y = y
+include::code-ch02/ecc.py[tag=source2]
+        if self.y**2 != self.x**3 + a * x + b:
+            raise ValueError('({}, {}) no está en la curva'.format(x, y))
+
+include::code-ch02/ecc.py[tag=source3]
+----
+<1> La coordenada _x_ y la coordenada _y_ siendo `Ninguna` es como significamos el punto en el infinito.
+Ten en cuenta que la siguiente sentencia +if+ fallará si no devolvemos aquí.
+<2> Aquí sobrecargamos el operador `+`.
+<3> Que `self.x` sea `None` significa que `self` es el punto en el infinito, o la identidad aditiva.
+Por lo tanto, devolvemos "otro".
+<4> Que `otro.x` sea `Nada` significa que `otro` es el punto en el infinito, o la identidad aditiva.
+Por lo tanto, devolvemos `self`.
+
+include::code-ch02/answers.py[tag=exercise3,indent=0]
+
+=== Suma de puntos para cuando x~1~≠x~2~
+
+Ahora que hemos cubierto la línea vertical, vamos a examinar cuando los puntos son diferentes.
+Cuando tenemos puntos en los que las `x` son diferentes, podemos sumar utilizando una fórmula bastante sencilla.
+Para ayudar a la intuición, primero encontraremos la pendiente creada por los dos puntos.
+Podemos calcularlo utilizando una fórmula de pre-álgebra:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> = (<em>x</em><sub>1</sub>,<em>y</em><sub>1</sub>), <em>P</em><sub>2</sub> = (<em>x</em><sub>2</sub>,<em>y</em><sub>2</sub>), <em>P</em><sub>3</sub> = (<em>x</em><sub>3</sub>,<em>y</em><sub>3</sub>)</li>.
+<li><em>P</em><sub>1</sub> + <em>P</em><sub>2</sub> = <em>P</em><sub>3</sub></li>
+<li><em>s</em> = (<em>y</em><sub>2</sub> - <em>y</em><sub>1</sub>)/(<em>x</em><sub>2</sub> - <em>x</em><sub>1</sub>)</li>
+</ul>
+++++
+
+Esta es la _pendiente_, y podemos usar la pendiente para calcular __x__~3~.
+Una vez que conocemos __x__~3~, podemos calcular __y__~3~.
+__P__~3~ se puede derivar utilizando esta fórmula:
+
+++++
+<ul class="simplelist">
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - <em>x</em><sub>1</sub> - <em>x</em><sub>2</sub></li>
+<li><em>y</em><sub>3</sub> = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>
+</ul>
+++++
+
+Recuerda que __y__~3~ es la reflexión sobre el eje x.
+
+Derivación de la fórmula de adición de puntos
+****
+
+Suponiendo:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> = (<em>x</em><sub>1</sub>,<em>y</em><sub>1</sub>), <em>P</em><sub>2</sub> = (<em>x</em><sub>2</sub>,<em>y</em><sub>2</sub>), <em>P</em><sub>3</sub> = (<em>x</em><sub>3</sub>,<em>y</em><sub>3</sub>)</li>.
+<li><em>P</em><sub>1</sub> + <em>P</em><sub>2</sub> = <em>P</em><sub>3</sub></li>
+</ul>
+++++
+
+Queremos saber qué es __P__~3~.
+
+Empecemos por el hecho de que la línea pasa por __P__~1~ y __P__~2~, y tiene esta fórmula:
+
+++++
+<ul class="simplelist">
+<li><em>s</em> = (<em>y</em><sub>2</sub> - <em>y</em><sub>1</sub>)/(<em>x</em><sub>2</sub> - <em>x</em><sub>1</sub>)</li>
+<li><em>y</em> = <em>s</em>(<em>x</em> - <em>x</em><sub>1</sub>) + <em>y</em><sub>1</sub></li>.
+</ul>
+++++
+
+La segunda fórmula es la ecuación de la línea que se cruza tanto en __P__~1~ como en __P__~2~.
+Utilizando esta fórmula y metiéndola en la ecuación de la curva elíptica, obtenemos:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sup>2</sup> = <em>x</em><sup>3</sup> + <em>ax</em> + <em>b</em></li>
+<li><em>y</em><sup>2</sup> = (<em>s</em>(<em>x</em> - <em>x</em><sub>1</sub>) + <em>y</em><sub>1</sub>)<sup>2</sup> = <em>x</em><sup>3</sup> + <em>ax</em> + <em>b</em></li>
+</ul>
+++++
+
+Reuniendo todos los términos, tenemos esta ecuación polinómica:
+
+++++
+<ul class="simplelist">
+<li><em>x</em><sup>3</sup> - <em>s</em><sup>2</sup><em>x</em><sup>2</sup> + (<em>a</em> + 2<em>s</em><sup>2</sup><em>x</em><sub>1</sub> - 2<em>sy</em><sub>1</sub>)<em>x</em> + <em>b</em> - <em>s</em><sup>2</sup><em>x</em><sub>1</sub><sup>2</sup> + 2<em>sx</em><sub>1</sub><em>y</em><sub>1</sub> - <em>y</em><sub>1</sub><sup>2</sup> = 0</li>
+</ul>
+++++
+
+También sabemos que __x__~1~, __x__~2~, y __x__~3~ son soluciones de esta ecuación, por lo tanto:
+
+++++
+<ul class="simplelist">
+<li>(<em>x</em> - <em>x</em><sub>1</sub>)(<em>x</em> - <em>x</em><sub>2</sub>)(<em>x</em> - <em>x</em><sub>3</sub>) = 0</li>
+<li><em>x</em><sup>3</sup> - (<em>x</em><sub>1</sub> + <em>x</em><sub>2</sub> + <em>x</em><sub>3</sub>)<em>x</em><sup>2</sup> + (<em>x</em><sub>1</sub><em>x</em><sub>2</sub> + <em>x</em><sub>1</sub><em>x</em><sub>3</sub> + <em>x</em><sub>2</sub><em>x</em><sub>3</sub>)<em>x</em> - <em>x</em><sub>1</sub><em>x</em><sub>2</sub><em>x</em><sub>3</sub> = 0</li>
+</ul>
+++++
+
+De antes, sabemos que:
+
+++++
+<ul class="simplelist">
+<li><em>x</em><sup>3</sup> - <em>s</em><sup>2</sup><em>x</em><sup>2</sup> + (<em>a</em> + 2<em>s</em><sup>2</sup><em>x</em><sub>1</sub> - 2<em>sy</em>~1~)<em>x</em> + <em>b</em> - <em>s</em><sup>2</sup><em>x</em><sub>1</sub><sup>2</sup> + 2<em>sx</em><sub>1</sub><em>y</em><sub>1</sub> - <em>y</em><sub>1</sub><sup>2</sup> = 0</li>
+</ul>
+++++
+
+Hay un resultado de lo que se llama http://bit.ly/2HXJtMp[fórmula de Vieta], que establece que los coeficientes tienen que ser iguales entre sí si las raíces son iguales.
+El primer coeficiente que es interesante es el que está delante de __x__^2^:
+
+++++
+<ul class="simplelist">
+<li>-<em>s</em><sup>2</sup> = -(<em>x</em><sub>1</sub> + <em>x</em><sub>2</sub> + <em>x</em><sub>3</sub>)</li>
+</ul>
+++++
+
+Podemos usar esto para derivar la fórmula de __x__~3~:
+
+++++
+<ul class="simplelist">
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - <em>x</em><sub>1</sub> - <em>x</em><sub>2</sub></li>.
+</ul>
+++++
+
+Podemos introducir esto en la fórmula de la línea anterior:
+
+++++
+<ul class="simplelist">
+<li><em>y</em> = <em>s</em>(<em>x</em> - <em>x</em><sub>1</sub>) + <em>y</em><sub>1</sub></li>.
+</ul>
+++++
+
+Pero tenemos que reflejar sobre el eje x, por lo que hay que negar el lado derecho:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sub>3</sub> = -(<em>s</em>(<em>x</em><sub>3</sub> - <em>x</em><sub>1</sub>) + <em>y</em><sub>1</sub>) = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>.
+</ul>
+++++
+
+QED.
+****
+
+include::code-ch02/answers.py[tag=exercise4,indent=0]
+
+=== Suma de puntos de codificación para cuando x~1~≠x~2~
+
+Ahora codificamos esto en nuestra biblioteca.
+Eso significa que tenemos que ajustar el método `__add__` para manejar el caso en que __x__~1~≠__x__~2~.
+Tenemos las fórmulas:
+
+++++
+<ul class="simplelist">
+<li><em>s</em> = (<em>y</em><sub>2</sub> - <em>y</em><sub>1</sub>)/(<em>x</em><sub>2</sub> - <em>x</em><sub>1</sub>)</li>
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - <em>x</em><sub>1</sub> - <em>x</em><sub>2</sub></li>
+<li><em>y</em><sub>3</sub> = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>
+</ul>
+++++
+
+Al final del método, devolvemos una instancia de la clase `Punto` utilizando `self.__class__` para facilitar la subclase.
+
+include::code-ch02/answers.py[tag=exercise5,indent=0]
+
+=== Suma de puntos para cuando P~1~ = P~2~
+
+Cuando las coordenadas _x_ son iguales y la coordenada _y_ es diferente, tenemos la situación de que los puntos son opuestos sobre el eje x.
+Sabemos que esto significa:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> = -<em>P</em><sub>2</sub> o <em>P</em><sub>1</sub> + <em>P</em><sub>2</sub> = <em>I</em></li>.
+</ul>
+++++
+
+Esto ya lo hemos tratado en el ejercicio 3.
+
+¿Qué ocurre cuando __P__~1~ = __P__~2~?
+Visualmente, tenemos que calcular la recta que es _tangente_ a la curva en __P__~1~ y encontrar el punto en el que la recta interseca la curva.
+La situación se parece a la <<línea_tangente_a_la_curva>>, como vimos antes.
+
+[[línea_que_es_tangente_a_la_curva]]
+Línea tangente a la curva
+[role="ancho-75"]
+image::images/prbc_0213.png[Línea tangente]
+
+Una vez más, encontraremos la pendiente del punto de tangencia:
+
+++++
+<ul class="simplelist">
+<li><em>P</em><sub>1</sub> = (<em>x</em><sub>1</sub>,<em>y</em><sub>1</sub>), <em>P</em><sub>3</sub> = (<em>x</em><sub>3</sub>,<em>y</em><sub>3</sub>)</li>
+<li><em>P</em><sub>1</sub> + <em>P</em><sub>1</sub> = <em>P</em><sub>3</sub></li>
+<li><em>s</em> = (3<em>x</em><sub>1</sub><sup>2</sup> + <em>a</em>)/(2<em>y</em><sub>1</sub>)</li>
+</ul>
+++++
+
+El resto de la fórmula sigue como antes, excepto que __x__~1~ = __x__~2~, por lo que podemos combinarlas:
+
+++++
+<ul class="simplelist">
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - 2<em>x</em><sub>1</sub></li>
+<li><em>y</em><sub>3</sub> = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>
+</ul>
+++++
+
+[NOTA]
+Derivación de la pendiente tangente a la curva
+====
+Podemos derivar la pendiente de la recta tangente usando un poco de matemática más avanzada: el cálculo.
+Sabemos que la pendiente en un punto dado es:
+
+++++
+<ul class="simplelist">
+<li><em>dy</em>/<em>dx</em></li>
+</ul>
+++++
+
+
+Para conseguirlo, tenemos que tomar la derivada de ambos lados de la ecuación de la curva elíptica:
+
+++++
+<ul class="simplelist">
+<li><em>y</em><sup>2</sup> = <em>x</em><sup>3</sup> + <em>ax</em> + <em>b</em></li>
+</ul>
+++++
+
+
+
+Tomando la derivada de ambos lados, obtenemos:
+
+++++
+<ul class="simplelist">
+<li>2<em>y dy</em> = (3<em>x</em><sup>2</sup> + <em>a</em>) <em>dx</em></li>
+</ul>
+++++
+
+
+Resolviendo para __dy__/__dx__, obtenemos:
+
+++++
+<ul class="simplelist">
+<li><em>dy</em>/<em>dx</em> = (3<em>x</em><sup>2</sup> + <em>a</em>)/(2<em>y</em>)</li>.
+</ul>
+++++
+
+
+Así llegamos a la fórmula de la pendiente.
+El resto de los resultados de la derivación de la fórmula de adición de puntos se mantienen.
+====
+
+include::code-ch02/answers.py[tag=exercise6,indent=0]
+
+=== Suma de puntos de codificación para cuando P~1~ = P~2~
+
+Ajustamos el método `__add__` para tener en cuenta este caso particular.
+Tenemos las fórmulas, y ahora las implementamos:
+
+++++
+<ul class="simplelist">
+<li><em>s</em> = (3<em>x</em><sub>1</sub><sup>2</sup> + <em>a</em>)/(2<em>y</em><sub>1</sub>)</li>
+<li><em>x</em><sub>3</sub> = <em>s</em><sup>2</sup> - 2<em>x</em><sub>1</sub></li>
+<li><em>y</em><sub>3</sub> = <em>s</em>(<em>x</em><sub>1</sub> - <em>x</em><sub>3</sub>) - <em>y</em><sub>1</sub></li>
+</ul>
+++++
+
+include::code-ch02/answers.py[tag=exercise7,indent=0]
+
+=== Codificación de una excepción más
+
+Hay una excepción más, y se trata del caso en que la línea tangente es vertical (<<vertical_y_tangente_a_la_curva>>).
+
+[[vertical_y_tangente_a_la_curva]]
+.vertical y tangente a la curva
+[role="ancho-75"]
+image::images/prbc_0219.png[Vertical tangente]
+
+Esto sólo puede ocurrir si __P__~1~ = __P__~2~ y la coordenada _y_ es 0, en cuyo caso el cálculo de la pendiente terminará con un 0 en el denominador.
+
+Nos ocupamos de esto con un caso especial:
+
+[fuente,python]
+----
+clase Punto:
+    ...
+    def __add__(self, other):
+    	...
+	si self == otro y self.y == 0 * self.x:  # <1>
+	    return self.__class__(None, None, self.a, self.b)
+----
+<1> Si los dos puntos son iguales y la coordenada _y_ es 0, devolvemos el punto al paso:[<span class="keep-together">infinito</span>].
+
+=== Conclusión
+
+Hemos cubierto lo que son las curvas elípticas, cómo funcionan y cómo hacer la suma de puntos.
+Ahora combinaremos los conceptos de los dos primeros capítulos para aprender criptografía de curvas elípticas en <<capítulo_criptografía_de_curvas_elípticas>>.

@@ -1,0 +1,632 @@
+[[chapter_segwit]]
+
+== Segwit
+
+[.lead]
+_Segwit_ significa "testigo segregado" y es una actualización retrocompatible o "soft fork" que se activó en la red Bitcoin en agosto de 2017.
+Aunque la activación fue controvertida, las características de esta tecnología requieren alguna explicación.
+En este capítulo, exploraremos cómo funciona Segwit, por qué es compatible con versiones anteriores y qué permite Segwit.
+
+Como breve resumen, Segwit incorporó una multitud de cambios:
+
+* Aumento del tamaño de los bloques
+* Corrección de la maleabilidad de las transacciones
+* Versionado de Segwit para una clara actualización de las rutas.
+* Arreglo del hash cuadrático
+* Seguridad en el cálculo de la tarifa de la cartera fuera de línea
+
+No es del todo obvio lo que es Segwit sin ver cómo se implementa.
+Empezaremos examinando el tipo más básico de transacción Segwit, el pago por testigo-pubkey-hash.
+
+=== Pay-to-Witness-Pubkey-Hash (p2wpkh)
+
+Pay-to-wit-pubkey-hash (p2wpkh) está definido por Segwit en BIP0141 y BIP0143.
+Se trata de un contrato inteligente que actúa de forma muy parecida a pay-to-pubkey-hash y se denomina de forma similar por esa razón.
+El principal cambio respecto a p2pkh es que los datos del ScriptSig están ahora en el campo de los testigos.
+El reordenamiento es para arreglar la maleabilidad de las transacciones.
+
+==== Maleabilidad de las transacciones
+
+La maleabilidad de las transacciones es la capacidad de cambiar el ID de la transacción sin alterar su significado.
+El director general de Mt. Gox, Mark Karpeles, citó la maleabilidad de las transacciones como la razón por la que su bolsa no permitía las retiradas en 2013.
+
+La maleabilidad del ID es una consideración importante a la hora de crear canales de pago, que son la unidad atómica de la Red Lightning.
+Un ID de transacción maleable hace que la creación segura de transacciones de canales de pago sea mucho más difícil.
+
+La razón por la que la maleabilidad de la transacción es un problema es porque el ID de la transacción se calcula a partir de la transacción completa.
+El ID de la transacción es el hash256 de la misma.
+La mayoría de los campos de una transacción no pueden ser cambiados sin invalidar la firma de la transacción (y por lo tanto la transacción misma), así que desde el punto de vista de la maleabilidad, estos campos no son un problema.
+
+El único campo que permite alguna manipulación sin invalidar la firma es el campo ScriptSig en cada entrada.
+El ScriptSig se vacía antes de crear el hash de la firma (ver <<capítulo_tx>>), por lo que es posible cambiar el ScriptSig sin invalidar la firma.
+Además, como aprendimos en el <<capítulo_elíptica_curva_criptográfica>>, las firmas contienen un componente aleatorio.
+Esto significa que dos ScriptSigs diferentes pueden significar esencialmente lo mismo pero ser diferentes en cuanto a bytes.
+
+Esto hace que el campo ScriptSig sea _malleable_ -es decir, que pueda cambiarse sin cambiar el significado- y significa que toda la transacción, y el ID de la transacción, son maleables.
+Un ID de transacción maleable significa que cualquier transacción _dependiente_ (es decir, cualquier transacción que gaste una de las salidas de la transacción maleable) no puede construirse de forma que se garantice su validez.
+El hash de la transacción anterior es incierto, por lo que no se puede garantizar que el campo de entrada de la transacción dependiente sea válido.
+
+Esto no suele ser un problema, ya que una vez que una transacción entra en la blockchain, el ID de la transacción es fijo y ya no es maleable (¡al menos sin encontrar una prueba de trabajo!).
+Sin embargo, con los canales de pago, hay transacciones dependientes creadas _antes_ de que la transacción de financiación se añada a la blockchain.
+
+==== Fijación de la maleabilidad
+
+La maleabilidad de la transacción se arregla vaciando el campo ScriptSig y poniendo los datos en otro campo que no se utilice para el cálculo del ID.
+En el caso de p2wpkh, la firma y la clave pública son los elementos de ScriptSig, por lo que se trasladan al campo del testigo, que no se utiliza para el cálculo del ID.
+De este modo, el ID de la transacción permanece estable al desaparecer el vector de maleabilidad.
+El campo testigo, y toda la serialización Segwit de una transacción, sólo se envía a los nodos que lo solicitan.
+En otras palabras, los nodos antiguos que no se han actualizado a Segwit no reciben el campo testigo y no verifican la pubkey y la firma.
+
+Si esto te suena familiar, debería.
+Esto es similar a cómo funciona p2sh (<<capítulo_p2sh>>) en el sentido de que los nodos más nuevos hacen una validación adicional que los nodos más antiguos no hacen, y es la base de por qué Segwit es un soft fork (actualización compatible con el pasado) y no un hard fork (actualización incompatible con el pasado).
+
+=== Transacciones p2wpkh
+
+Para entender Segwit, ayuda a observar el aspecto de una transacción cuando se envía a un nodo antiguo (<<pay_to_witness_pubkey_hash_as_seen_by_pre_bip0141_software>>) frente a un nodo nuevo (<<pay_to_witness_pubkey_hash_as_seen_by_pip0141_software>>).
+
+[[pay_to_witness_pubkey_hash_as_seen_by_pre_bip0141_software]]
+Pay-to-witness-pubkey-hash (p2wpkh) visto por el software pre-BIP0141
+image::images/prbc_1301.png[p2wpkh a nodos antiguos]
+
+[[pay_to_witness_pubkey_hash_as_seen_by_post_bip0141_software]]
+Pay-to-witness-pubkey-hash (p2wpkh) visto por el software post-BIP0141
+image::images/prbc_1302.png[p2wpkh a nuevos nodos]]
+
+La diferencia entre estas dos serializaciones es que la última transacción (serialización de Segwit) tiene los campos marcador, bandera y testigo.
+Por lo demás, las dos transacciones son similares.
+La razón por la que el ID de la transacción no es maleable es porque la primera serialización se utiliza para calcular el ID de la transacción.
+
+El campo testigo en p2wpkh tiene la firma y la clave pública como sus dos elementos.
+Estos se utilizarán para la validación de los nodos actualizados únicamente.
+
+La ScriptPubKey para p2wpkh es `OP_0` _<Hash de 20 bytes>_.
+El ScriptSig, como se ve en ambas serializaciones, está vacío.
+El script combinado se muestra en <<pay_to_witness_pubkey_hash_p2wpkh_scriptpubkey>>.
+
+[[pay_to_witness_pubkey_hash_p2wpkh_scriptpubkey]]
+.Pay-to-witness-pubkey-hash (p2wpkh) ScriptPubKey
+image::images/prbc_1303.png[p2wpkh ScriptPubKey]]
+
+El procesamiento del script combinado comienza como <<p2wpkh_start>>.
+
+[[p2wpkh_start]]
+.p2wpkh start
+image::images/prbc_1304.png[p2wpkh start]
+
+`OP_0` empuja un 0 a la pila (<<p2wpkh_step_1>>).
+
+[[p2wpkh_step_1]]
+.p2wpkh paso 1
+image::images/prbc_1305.png[p2wpkh paso 1]
+
+El hash de 20 bytes es un elemento, por lo que se empuja a la pila (<<p2wpkh_step_2>>).
+
+[[p2wpkh_paso_2]]
+.p2wpkh paso 2
+image::images/prbc_1306.png[p2wpkh paso 2]
+
+En este punto, los nodos más antiguos se detendrán ya que no hay más comandos de Script para ser procesados.
+Como el elemento superior es distinto de cero, se contará como un script válido.
+Esto es muy similar a p2sh (<<capítulo_p2sh>>) en que los nodos más antiguos no pueden validar más.
+Los nodos más nuevos, sin embargo, tienen una regla especial de Segwit muy parecida a la regla especial de p2sh (ver <<capítulo_p2sh>>).
+Recordemos que con p2sh, la secuencia de comandos exacta de _<RedeemScript>_ `OP_HASH160` _<hash>_ `OP_EQUAL` activa una regla especial.
+
+En el caso de p2wpkh, la secuencia de comandos es `OP_0` _<hash de 20 bytes>_.
+Cuando se encuentra esa secuencia de comandos, la clave pública y la firma del campo testigo y el hash de 20 bytes se añaden al conjunto de comandos exactamente en la misma secuencia que con p2pkh, es decir, _<firma>_ _<clave pública>_ `OP_DUP OP_HASH160` _<hash de 20 bytes>_ `OP_EQUALVERIFY OP_CHECKSIG`.
+<<p2wpkh_step_3>> muestra el estado que se encuentra a continuación.
+
+[[p2wpkh_paso_3]]
+.p2wpkh paso 3
+image::images/prbc_1307.png[p2wpkh paso 3]
+
+El resto del procesamiento de p2wpkh es el mismo que el de p2pkh, como se ve en <<capítulo_script>>.
+El estado final es un único 1 en la pila si y sólo si el hash de 20 bytes es el hash160 de la pubkey y la firma es válida (<<p2wpkh_paso_4>>).
+
+[[p2wpkh_paso_4]]
+.p2wpkh paso 4
+image::images/prbc_1308.png[p2wpkh paso 4]
+
+Para un nodo antiguo, el procesamiento se detiene en _<20-byte hash>_ 0, ya que los nodos antiguos no conocen la regla especial de Segwit.
+Sólo los nodos actualizados hacen el resto de la validación, de forma similar a lo que ocurre con p2sh.
+Tenga en cuenta que se envían menos datos por la red a los nodos más antiguos.
+Además, los nodos tienen la opción de no tener que descargar (y por tanto no verificar) las transacciones que tienen _x_ bloques de antigüedad si no quieren hacerlo.
+En cierto sentido, la firma ha sido atestiguada por un grupo de personas y un nodo puede elegir confiar en que esto es válido en lugar de validar directamente si así lo desea.
+
+Tenga en cuenta también que esta es una regla especial para la versión 0 de Segwit.
+La versión 1 de Segwit puede tener una ruta de procesamiento completamente diferente.
+La regla de la versión 1 de Segwit puede ser la secuencia de comandos especial que desencadena una regla diferente.
+Las actualizaciones de Segwit pueden introducir firmas Schnorr, Graftroot, o incluso un sistema de scripting diferente, como Simplicity.
+Segwit nos da una ruta de actualización clara.
+El software que entiende cómo validar la versión X de Segwit validará dichas transacciones, pero el software que no conoce la versión X de Segwit simplemente procesa sólo hasta el punto de la regla especial.
+
+=== p2sh-p2wpkh
+
+p2wpkh es genial, pero desafortunadamente, es un nuevo tipo de script y los monederos más antiguos no pueden enviar bitcoins a los ScriptPubKeys de p2wpkh.
+p2wpkh utiliza un nuevo formato de dirección llamado Bech32, definido en BIP0173, cuyas ScriptPubKeys los monederos más antiguos no saben cómo crear.
+
+Los autores de Segwit encontraron una forma ingeniosa de hacer Segwit compatible con versiones anteriores "envolviendo" p2wpkh dentro de p2sh.
+Esto se llama Segwit "anidado" ya que el script de Segwit está anidado en un RedeemScript de p2sh.
+
+Una dirección p2sh-p2wpkh es una dirección p2sh normal, pero el RedeemScript es `OP_0` _<hash de 20 bytes>_, o el ScriptPubKey de p2wpkh.
+Al igual que con p2wpkh, se envían diferentes transacciones a los nodos más antiguos (<<p2sh_p2wpkh_to_pre_bip0141_software>>) frente a los más nuevos (<<p2sh_p2wpkh_to_post_bip0141_software>>).
+
+[[p2sh_p2wpkh_to_pre_bip0141_software]]
+.Pago-a-script-hash-pago-a-testimonio-pubkey-hash (p2sh-p2wpkh) a software pre-BIP0141
+image::images/prbc_1309.png[p2sh-p2wpkh a nodos antiguos]
+
+[[p2sh_p2wpkh_to_post_bip0141_software]]
+.p2sh-p2wpkh a software post-BIP0141
+image::images/prbc_1310.png[p2sh-p2wpkh a Nuevos Nodos]
+
+La diferencia con p2wpkh es que el ScriptSig ya no está vacío.
+El ScriptSig tiene un RedeemScript, que es igual al ScriptPubkey en p2wpkh.
+Como se trata de un script p2sh, la ScriptPubKey es la misma que en cualquier otro script p2sh.
+El script combinado se ve como <<p2sh_p2wpkh_scriptpubkey_is_the_same_as_a_normal_p2sh_scriptpubkey>>.
+
+[[p2sh_p2wpkh_scriptpubkey_es_la_misma_que_una_p2sh_scriptpubkey_normal]]
+.p2sh-p2wpkh ScriptPubKey es la misma que una ScriptPubKey p2sh normal
+image::images/prbc_1311.png[p2sh-p2wpkh ScriptPubKey]
+
+Iniciamos la evaluación del script como en <<p2sh_p2wpkh_start>>.
+
+[[p2sh_p2wpkh_start]]
+.p2sh-p2wpkh start
+image::images/prbc_1312.png[p2sh-p2wpkh start]
+
+Observe que los comandos a procesar son exactamente los que activan la regla especial p2sh.
+El RedeemScript va en la pila (<<p2sh_p2wpkh_step_1>>).
+
+[[p2sh_p2wpkh_step_1]]
+.p2sh-p2wpkh paso 1
+image::images/prbc_1313.png[p2sh-p2wpkh paso 1]
+
+El `OP_HASH160` devolverá el hash del RedeemScript (<<p2sh_p2wpkh_step_2>>).
+
+[[p2sh_p2wpkh_step_2]]
+.p2sh-p2wpkh paso 2
+image::images/prbc_1314.png[p2sh-p2wpkh paso 2]
+
+El hash irá a la pila, y entonces llegamos a `OP_EQUAL` (<<p2sh_p2wpkh_step_3>>).
+
+[[p2sh_p2wpkh_step_3]]
+.p2sh-p2wpkh paso 3
+image::images/prbc_1315.png[p2sh-p2wpkh paso 3]
+
+En este punto, si los hashes son iguales, los nodos pre-BIP0016 simplemente marcarán la entrada como válida, ya que desconocen las reglas de validación de p2sh.
+Sin embargo, los nodos post-BIP0016 reconocen la secuencia de comandos especial para p2sh, por lo que el RedeemScript será evaluado como comandos Script.
+El RedeemScript es `OP_0` _<hash de 20 bytes>_, que es el mismo que el ScriptPubKey para p2wpkh.
+Esto hace que el estado del script se vea como <<p2sh_p2wpkh_step_4>>.
+
+[[p2sh_p2wpkh_step_4]]
+.p2sh-p2wpkh paso 4
+image::images/prbc_1316.png[p2sh-p2wpkh paso 4]
+
+Esto debe parecer familiar, ya que este es el estado con el que comienza p2wpkh.
+Después de `OP_0` y el hash de 20 bytes nos queda <<p2sh_p2wpkh_step_5>>.
+
+[[p2sh_p2wpkh_step_5]]
+.p2sh-p2wpkh paso 5
+image::images/prbc_1317.png[p2sh-p2wpkh paso 5]
+
+En este punto, los nodos pre-Segwit marcarán esta entrada como válida ya que desconocen las reglas de validación de Segwit.
+Sin embargo, los nodos post-Segwit reconocerán la secuencia de comandos especial para p2wpkh.
+La firma y la pubkey del campo testigo junto con el hash de 20 bytes añadirán los comandos p2pkh (<<p2sh_p2wpkh_step_6>>).
+
+[[p2sh_p2wpkh_step_6]]
+.p2sh-p2wpkh paso 6
+image::images/prbc_1318.png[p2sh-p2wpkh paso 6]
+
+El resto del procesamiento es el mismo que el de p2pkh (<<capítulo_script>>).
+Asumiendo que la firma y la pubkey son válidas, nos queda <<p2sh_p2wpkh_end>>.
+
+[[p2sh_p2wpkh_end]]
+.p2sh-p2wpkh end
+image::images/prbc_1319.png[p2sh-p2wpkh end]
+
+Como puede ver, una transacción p2sh-p2wpkh es compatible con el pasado hasta antes de BIP0016.
+Un nodo anterior a BIP0016 consideraría el script válido una vez que los RedeemScripts fueran iguales, y un nodo posterior a BIP0016, anterior a Segwit, consideraría el script válido en el hash de 20 bytes.
+Ambos no harían la validación completa y aceptarían la transacción.
+Un nodo post-Segwit haría la validación completa, incluyendo la comprobación de la firma y la pubkey.
+
+[NOTA]
+¿Puede alguien gastar las salidas de Segwit?
+====
+Los detractores de Segwit se han referido a las salidas de Segwit como "cualquiera puede gastar".
+Esto habría sido cierto si la comunidad Bitcoin hubiera rechazado Segwit.
+En otras palabras, si una parte económicamente significativa de la comunidad Bitcoin se hubiera negado a hacer la validación de Segwit y se hubiera separado activamente de la red aceptando transacciones que no eran válidas para Segwit, los resultados habrían sido "cualquiera puede gastar".
+Sin embargo, debido a una serie de incentivos económicos, Segwit se activó en la red, no hubo ninguna separación de la red, muchos bitcoins están ahora bloqueados en las salidas de Segwit, y las transacciones de Segwit son validadas según las reglas del soft-fork por la gran mayoría económica de los nodos.
+Ahora podemos decir con seguridad que los detractores estaban equivocados.
+====
+
+=== Codificación p2wpkh y p2sh-p2wpkh
+
+El primer cambio que vamos a hacer es en la clase `Tx`, donde tenemos que marcar si la transacción es Segwit o no:
+
+[fuente,python]
+----
+include::code-ch13/tx.py[tag=source1]
+----
+
+A continuación, cambiamos el método `parse` en función de la serialización que recibimos:
+
+[fuente,python]
+----
+clase Tx:
+...
+include::code-ch13/tx.py[tag=source2]
+----
+<1> Para determinar si tenemos una transacción Segwit o no, miramos el quinto byte.
+Los cuatro primeros son la versión, el quinto es el marcador Segwit.
+<2> El quinto byte que es 0 es como decimos que esta transacción es Segwit (esto no es infalible, pero es lo que vamos a utilizar).
+Usamos diferentes parsers dependiendo de si es Segwit.
+<3> Volvemos a poner el stream en la posición anterior a examinar los primeros 5 bytes.
+<4> Movemos el antiguo método `parse` a `parse_legacy`.
+
+Aquí hay un parser para la serialización de Segwit:
+
+[fuente,python]
+----
+clase Tx:
+...
+include::code-ch13/tx.py[tag=source3]
+----
+<1> Hay dos nuevos campos; uno de ellos es el marcador Segwit.
+<2> El segundo campo nuevo es witness, que contiene elementos para cada entrada.
+
+Ahora codificamos los cambios correspondientes en los métodos de serialización:
+
+[fuente,python]
+----
+clase Tx:
+...
+include::code-ch13/tx.py[tag=source4]
+----
+<1> Lo que antes se llamaba `serialize` ahora es `serialize_legacy`.
+<2> La serialización de Segwit añade los marcadores.
+<3> El testigo se serializa al final.
+
+También tenemos que cambiar el método `hash` para utilizar la serialización de legado, incluso para las transacciones Segwit, ya que eso mantendrá el ID de la transacción estable:
+
+[fuente,python]
+----
+clase Tx:
+...
+include::code-ch13/tx.py[tag=source5]
+----
+
+El método `verify_input` requiere un `z` diferente para las transacciones de Segwit.
+El cálculo del hash de la firma de la transacción Segwit se especifica en BIP0143.
+Además, el campo testigo se pasa al motor de evaluación de la secuencia de comandos:
+
+[fuente,python]
+----
+clase Tx:
+...
+    def verificar_entrada(self, índice_entrada):
+        tx_in = self.tx_ins[input_index]
+        script_pubkey = tx_in.script_pubkey(testnet=self.testnet)
+        si script_pubkey.is_p2sh_script_pubkey():
+            command = tx_in.script_sig.commands[-1]
+            raw_redeem = int_to_little_endian(len(command), 1) + command
+            redeem_script = Script.parse(BytesIO(raw_redeem))
+            if redeem_script.is_p2wpkh_script_pubkey():  # <1>
+                z = self.sig_hash_bip143(input_index, redeem_script) # <2>
+                testigo = tx_in.testigo
+            Si no:
+                z = self.sig_hash(input_index, redeem_script)
+                testigo = None
+        Si no:
+            if script_pubkey.is_p2wpkh_script_pubkey():  # <3>
+                z = self.sig_hash_bip143(input_index) # <2>
+                testigo = tx_in.testigo
+            Si no:
+                z = self.sig_hash(input_index)
+                testigo = None
+        combined_script = tx_in.script_sig + tx_in.script_pubkey(self.testnet)
+        return combined_script.evaluate(z, witness) # <4>
+----
+<1> Esto maneja el caso p2sh-p2wpkh.
+<2> El código de generación del hash de la firma BIP0143 está en _tx.py_ del código de este capítulo.
+<3> Esto maneja el caso p2wpkh.
+<4> El testigo pasa al motor de evaluación para que p2wpkh pueda construir los comandos correctos.
+
+También definimos el aspecto de un script p2wpkh en _script.py_:
+
+[fuente,python]
+----
+include::code-ch13/script.py[tag=source1]
+...
+include::code-ch13/script.py[tag=fuente2]
+----
+<1> Esto es OP_0 _<20-byte-hash>_.
+<2> Esto comprueba si el script actual es un p2wpkh ScriptPubKey.
+
+Por último, tenemos que implementar la regla especial en el método `evaluar`.
+
+[fuente,python]
+----
+clase Script:
+...
+    def evaluar(self, z, testigo):
+    ...
+        while len(comandos) > 0:
+        ...
+            si no:
+                stack.append(command)
+		...
+include::code-ch13/script.py[tag=source3]
+----
+<1> Aquí es donde ejecutamos la versión 0 del programa testigo para p2wpkh.
+Hacemos un script combinado p2pkh a partir del hash de 20 bytes, la firma y la pubkey y evaluamos.
+
+=== Pay-to-Witness-Script-Hash (p2wsh)
+
+Mientras que p2wpkh se encarga de un caso de uso importante, necesitamos algo más flexible si queremos scripts más complicados (por ejemplo, multisig).
+Aquí es donde entra en juego p2wsh (pay-to-witness-script-hash). p2wsh es como p2sh, pero con todos los datos de ScriptSig en el campo del testigo.
+
+Al igual que en el caso de p2wpkh, enviamos datos diferentes al software anterior al BIP0141 (<<p2wsh_as_seen_by_pre_bip0141_software>>) y al software posterior al BIP0141 (<<p2wsh_as_seen_by_post_bip0141_software>>).
+
+[[p2wsh_as_seen_by_pre_bip0141_software]]
+.Pay-to-witness-script-hash como lo ve el software pre-BIP0141
+image::images/prbc_1320.png[p2wsh a nodos antiguos]
+
+[[p2wsh_as_seen_by_post_bip0141_software]]
+.Pay-to-witness-script-hash tal y como lo ve el software post-BIP0141
+image::images/prbc_1321.png[p2wsh a nuevos nodos]
+
+La ScriptPubKey para el script p2wsh es `OP_0` _<hash de 32 bytes>_.
+Esta secuencia activa otra regla especial.
+El ScriptSig, al igual que con p2wpkh, está vacío.
+Cuando se gastan las salidas de p2wsh, el script combinado tiene el aspecto de <<p2wsh_scriptpubkey>>.
+
+[[p2wsh_scriptpubkey]]
+.Pay-to-witness-script-hash (p2wsh) ScriptPubKey
+image::images/prbc_1322.png[p2wsh ScriptPubKey]
+
+El procesamiento de esta secuencia de comandos comienza de forma similar a la de p2wpkh (paso de figuras:[<a data-type="xref" data-xrefstyle="select:labelnumber" href="#p2wsh_start">#p2wsh_start</a> y <a data-type="xref" data-xrefstyle="select:labelnumber" href="#p2wsh_step_1">#p2wsh_step_1</a>].
+
+[[p2wsh_start]]
+.p2sh start
+image::images/prbc_1323.png[p2wsh start]
+
+[[p2wsh_paso_1]]
+.p2wsh paso 1
+image::images/prbc_1324.png[p2wsh paso 1]
+
+El hash de 32 bytes es un elemento, por lo que se empuja a la pila (<<p2wsh_step_2>>).
+
+[[p2wsh_paso_2]]
+.p2wsh paso 2
+image::images/prbc_1325.png[p2wsh paso 2]
+
+Al igual que con p2wpkh, los nodos más antiguos se detendrán aquí porque no hay más comandos Script que procesar.
+Los nodos más nuevos reconocerán la secuencia especial y harán una validación adicional mirando el campo del testigo.
+
+El campo testigo para p2wsh en nuestro caso es un multisig de 2 de 3 (<<p2wsh_witness>>).
+
+[[p2wsh_testigo]]
+.p2wsh testigo
+image::images/prbc_1326.png[p2wsh witness]
+
+El último elemento del testigo se llama _WitnessScript_ y debe ser sha256 al hash de 32 bytes del ScriptPubKey.
+Ten en cuenta que esto es sha256, no hash256.
+Una vez que el WitnessScript es validado por tener el mismo valor hash, es interpretado como comandos de script y puesto en el conjunto de comandos.
+El WitnessScript se ve como <<p2wsh_witness_script>>.
+
+[[p2wsh_witness_script]]
+.p2wsh WitnessScript
+image::images/prbc_1327.png[p2wsh WitnessScript]
+
+El resto del campo testigo se pone encima para producir el conjunto de comandos en <<p2wsh_step_3>>.
+
+[[p2wsh_paso_3]]
+.p2wsh paso 3
+image::images/prbc_1328.png[p2wsh paso 3]
+
+Como puedes ver, se trata de un multisig de 2 de 3 muy parecido a lo que se exploró en el <<capítulo_p2sh>> (<<p2wsh_p_4>>).
+
+[[p2wsh_paso_4]]
+.p2wsh paso 4
+image::images/prbc_1329.png[p2wsh paso 4]
+
+Si las firmas son válidas, terminamos como <<p2wsh_step_5>>.
+
+[[p2wsh_paso_5]]
+.p2wsh paso 5
+image::images/prbc_1330.png[p2wsh paso 5]
+
+El WitnessScript es muy similar al RedeemScript en el sentido de que el sha256 de la serialización se direcciona en el ScriptPubKey, pero sólo se revela cuando se está gastando la salida.
+Una vez que el sha256 del WitnessScript coincide con el hash de 32 bytes, el WitnessScript se interpreta como comandos de script y se añade al conjunto de comandos.
+El resto del campo testigo se añade también al conjunto de comandos, produciendo el conjunto final de comandos a evaluar.
+El p2wsh es especialmente importante, ya que se requieren transacciones multisig no maleables para crear canales de pago bidireccionales para la Lightning Network.
+
+=== p2sh-p2wsh
+
+Al igual que p2sh-p2wpkh, p2sh-p2wsh es una forma de hacer que p2wsh sea compatible con versiones anteriores.
+De nuevo, se envían diferentes transacciones a los nodos más antiguos (<<p2sh_p2wsh_to_pre_bip0141_software>>) frente a los nodos más nuevos (<<p2sh_p2wsh_to_post_bip0141_software>>).
+
+[[p2sh_p2wsh_to_pre_bip0141_software]]
+Pago de un guión a un guión (p2sh-p2wsh) a un software anterior a BIP0141
+image::images/prbc_1331.png[p2sh-p2wsh a nodos antiguos]
+
+[[p2sh_p2wsh_to_post_bip0141_software]]
+.p2sh-p2wsh a software post-BIP0141
+image::images/prbc_1332.png[p2sh-p2wsh a Nuevos Nodos]
+
+[role="pagebreak-before"]
+Al igual que con p2sh-p2wpkh, la ScriptPubKey es indistinguible de cualquier otra dirección p2sh y la ScriptSig es sólo el RedeemScript (<<p2sh_p2wsh_scriptpubkey>>).
+
+[[p2sh_p2wsh_scriptpubkey]]
+.p2sh-p2wsh ScriptPubKey
+image::images/prbc_1311.png[p2sh-p2wsh ScriptPubKey]
+
+Iniciamos la evaluación del script p2sh-p2wsh exactamente de la misma manera que la evaluación del script p2sh-p2wpkh (<<p2sh_p2wsh_start>>).
+
+[[p2sh_p2wsh_start]]
+.p2sh-p2wsh start
+image::images/prbc_1312.png[p2sh-p2wsh start]
+
+El RedeemScript es empujado a la pila (<<p2sh_p2wsh_step_1>>).
+
+[[p2sh_p2wsh_step_1]]
+.p2sh-p2wsh paso 1
+image::images/prbc_1313.png[p2sh-p2wsh paso 1]
+
+El `OP_HASH160` devolverá el hash del RedeemScript (<<p2sh_p2wsh_step_2>>).
+
+[[p2sh_p2wsh_step_2]]
+.p2sh-p2wsh paso 2
+image::images/prbc_1314.png[p2sh-p2wsh paso 2]
+
+El hash es empujado a la pila, y entonces llegamos a `OP_EQUAL` (<<p2sh_p2wsh_step_3>>).
+
+[[p2sh_p2wsh_step_3]]
+.p2sh-p2wsh paso 3
+image::images/prbc_1315.png[p2sh-p2wsh paso 3]
+
+Al igual que con p2sh-p2wpkh, si los hashes son iguales, los nodos pre-BIP0016 marcarán la entrada como válida ya que desconocen las reglas de validación de p2sh.
+Sin embargo, los nodos post-BIP0016 reconocerán la secuencia de comandos especial para p2sh, por lo que el RedeemScript se interpretará como nuevos comandos de script.
+El RedeemScript es `OP_0` _hash de 32 bytes_, que es el mismo que el ScriptPubKey para p2wsh (<<p2sh_p2wsh_redeemscript>>).
+
+[[p2sh_p2wsh_redeemscript]]
+.p2sh-p2wsh RedeemScript
+image::images/prbc_1338.png[p2sh-p2wsh RedeemScript]
+
+Esto hace que el estado del script se vea como <<p2sh_p2wsh_step_4>>.
+
+[[p2sh_p2wsh_step_4]]
+.p2sh-p2wsh paso 4
+image::images/prbc_1323.png[p2sh-p2wsh paso 4]
+
+Por supuesto, este es exactamente el mismo estado de partida que para p2wsh (<<p2sh_p2wsh_step_5>>).
+
+[[p2sh_p2wsh_step_5]]
+.p2sh-p2wsh paso 5
+image::images/prbc_1324.png[p2sh-p2wsh paso 5]
+
+El hash de 32 bytes es un elemento, por lo que se empuja a la pila (<<p2sh_p2wsh_step_6>>).
+
+[[p2sh_p2wsh_step_6]]
+.p2sh-p2wsh paso 6
+image::images/prbc_1325.png[p2sh-p2wsh paso 6]
+
+En este punto, los nodos pre-Segwit marcarán esta entrada como válida, ya que no conocen las reglas de validación de Segwit.
+Sin embargo, los nodos post-Segwit reconocerán la secuencia de comandos especial para p2wsh.
+El campo testigo (<<p2sh_p2wsh_witness>>) contiene el WitnessScript (<<p2sh_p2wsh_witness_script>>). El sha256 del WitnessScript se comprueba con el hash de 32 bytes, y si son iguales el WitnessScript se interpreta como comandos de script y se pone en el conjunto de comandos (<<p2sh_p2wsh_step_7>>).
+
+[[p2sh_p2wsh_witness]]
+.p2sh-p2wsh testigo
+image::images/prbc_1342.png[p2sh-p2wsh witness]
+
+[[p2sh_p2wsh_witness_script]]
+.p2sh-p2wsh WitnessScript
+image::images/prbc_1327.png[p2wsh WitnessScript]
+
+[[p2sh_p2wsh_step_7]]
+.p2sh-p2wsh paso 7
+image::images/prbc_1328.png[p2sh-p2wsh paso 7]
+
+Como puedes ver, se trata de un multisig de 2 de 3 como en <<capítulo_p2sh>>.
+Si las firmas son válidas, terminamos como <<p2sh_p2wsh_end>>.
+
+[[p2sh_p2wsh_end]]
+.p2sh-p2wsh end
+image::images/prbc_1330.png[p2sh-p2wsh end]
+
+Esto hace que p2wsh sea compatible con versiones anteriores, permitiendo que los monederos más antiguos envíen a p2sh ScriptPubKeys que puedan manejar.
+
+=== Codificación p2wsh y p2sh-p2wsh
+
+El análisis sintáctico y la serialización son exactamente los mismos que antes.
+Los principales cambios tienen que ver con `verify_input` en _tx.py_ y `evaluate` en _script.py_:
+
+[fuente,python]
+----
+clase Tx:
+...
+    def verificar_entrada(self, índice_entrada):
+        tx_in = self.tx_ins[input_index]
+        script_pubkey = tx_in.script_pubkey(testnet=self.testnet)
+        si script_pubkey.is_p2sh_script_pubkey():
+            command = tx_in.script_sig.commands[-1]
+            raw_redeem = int_to_little_endian(len(command), 1) + command
+            redeem_script = Script.parse(BytesIO(raw_redeem))
+            si redeem_script.is_p2wpkh_script_pubkey():
+                z = self.sig_hash_bip143(input_index, redeem_script)
+                testigo = tx_in.testigo
+            elif redeem_script.is_p2wsh_script_pubkey():  # <1>
+                comando = tx_in.testigo[-1]
+                raw_witness = encode_varint(len(command)) + command
+                testigo_script = Script.parse(BytesIO(testigo_bruto))
+                z = self.sig_hash_bip143(input_index,
+                                         testigo_script=escritura_de_testigo)
+                testigo = tx_in.testigo
+            Si no:
+                z = self.sig_hash(input_index, redeem_script)
+                testigo = None
+        Si no:
+            if script_pubkey.is_p2wpkh_script_pubkey():
+                z = self.sig_hash_bip143(input_index)
+                testigo = tx_in.testigo
+            elif script_pubkey.is_p2wsh_script_pubkey():  # <2>
+                comando = tx_in.testigo[-1]
+                raw_witness = encode_varint(len(command)) + command
+                testigo_script = Script.parse(BytesIO(testigo_bruto))
+                z = self.sig_hash_bip143(input_index,
+                                         testigo_script=escritura_de_testigo)
+                testigo = tx_in.testigo
+            Si no:
+                z = self.sig_hash(input_index)
+                testigo = None
+        combined_script = tx_in.script_sig + tx_in.script_pubkey(self.testnet)
+        return combined_script.evaluate(z, witness)
+----
+<1> Esto se encarga de p2sh-p2wsh.
+<2> Esto se encarga de p2wsh.
+
+A continuación, codificamos una forma de identificar p2wsh en _script.py_:
+
+[fuente,python]
+----
+include::code-ch13/script.py[tag=source4]
+...
+clase Script:
+...
+include::code-ch13/script.py[tag=source5]
+----
+<1> `OP_0` _<script de 32 bytes>_ es lo que esperamos.
+
+Por último, manejamos la regla especial para p2wsh:
+
+[fuente,python]
+----
+clase Script:
+...
+    def evaluar(self, z, testigo):
+    ...
+        while len(comandos) > 0:
+        ...
+	   si no:
+                stack.append(command)
+    	        ...
+include::code-ch13/script.py[tag=source6]
+----
+<1> El elemento superior es el hash sha256 del WitnessScript.
+<2> El segundo elemento es la versión del testigo, 0.
+<3> Todo menos el WitnessScript se añade al conjunto de comandos.
+<4> El WitnessScript es el último elemento del campo de testigos.
+<5> El WitnessScript debe tener el hash del sha256 que estaba en la pila.
+<6> Analizamos el WitnessScript y lo añadimos al conjunto de comandos.
+
+=== Otras mejoras
+
+Segwit también soluciona el problema del hash cuadrático mediante un cálculo diferente del hash de la firma.
+Muchos de los cálculos para el hash de la firma, _z_, pueden ser reutilizados en lugar de requerir un nuevo hash256 para cada entrada.
+El cálculo del hash de la firma se detalla en BIP0143 y puede verse en _code-ch13/tx.py_.
+
+Otra mejora es que, por política, ahora se prohíben las pubkeys SEC sin comprimir; sólo se utilizan pubkeys SEC comprimidas para Segwit, lo que permite ahorrar espacio.
+
+=== Conclusión
+
+El capítulo cubrió los detalles de Segwit como una muestra de lo que ahora es posible.
+El <<capítulo_avanzado>> discute los siguientes pasos que puede dar en su viaje como desarrollador de Bitcoin.

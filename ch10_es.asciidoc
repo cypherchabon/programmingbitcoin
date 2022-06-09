@@ -1,0 +1,283 @@
+[[capítulo_redes]]
+== Redes
+
+[.lead]
+La red peer-to-peer en la que funciona Bitcoin es lo que le da gran parte de su robustez. Más de 65.000 nodos funcionan en la red en el momento de escribir este artículo y se comunican constantemente.
+
+La red Bitcoin es una red de difusión, o red de cotilleo.
+Cada nodo anuncia diferentes transacciones, bloques y compañeros que conoce.
+El protocolo es rico y tiene muchas características que se han añadido a lo largo de los años.
+
+Una cosa a tener en cuenta sobre el protocolo de red es que no es crítico para el consenso.
+Los mismos datos pueden enviarse de un nodo a otro utilizando algún otro protocolo y la propia blockchain no se verá afectada.
+
+Teniendo esto en cuenta, en este capítulo trabajaremos para solicitar, recibir y validar cabeceras de bloque utilizando el protocolo de red.
+
+=== Mensajes de red
+
+Todos los mensajes de red tienen el aspecto de <<mensaje_de_red_o_el_sobre_que_contiene_la_carga_real>>.
+
+Los primeros 4 bytes son siempre los mismos y se denominan _magia de red_.
+Los bytes mágicos son comunes en la programación de redes, ya que la comunicación es asíncrona y puede ser intermitente.
+Los bytes mágicos proporcionan al receptor del mensaje un punto de partida en caso de que la comunicación se interrumpa (por ejemplo, si el teléfono pierde la señal).
+También son útiles para identificar la red.
+Por ejemplo, no querrás que un nodo de Bitcoin se conecte a un nodo de Litecoin.
+Por lo tanto, un nodo Litecoin tiene una magia diferente.
+La red de prueba de Bitcoin también tiene una magia diferente, `0b110907`, en contraposición a la magia de la red principal de Bitcoin, `f9beb4d9`.
+
+[[mensaje_de_red_o_el_sobre_que_contiene_la_carga_real_de_pago]]
+Un mensaje de red-el sobre que contiene la carga útil real
+image::images/prbc_1001.png[Mensaje de red]
+
+Los siguientes 12 bytes son el campo de comandos, o una descripción de lo que realmente lleva la carga útil.
+Hay muchos comandos diferentes; se puede ver una lista exhaustiva en https://en.bitcoin.it/wiki/Protocol_documentation[documentación].
+El campo de comandos está pensado para ser legible por los humanos y este mensaje en particular es la cadena de bytes "version" en ASCII con un relleno de 0 bytes.
+
+Los siguientes 4 bytes son la longitud de la carga útil en little-endian.
+Como vimos en el pase de capítulos:[<a data-type="xref" href="#capítulo_tx_parsing" data-xrefstyle="select:labelnumber">#capítulo_tx_parsing</a> y
+<a data-type="xref" href="#capítulo_bloques" data-xrefstyle="select:labelnumber">#capítulo_bloques</a>], la longitud de la carga útil es necesaria ya que ésta es variable.
+2^32^ es aproximadamente 4.000 millones, por lo que las cargas útiles pueden llegar a ser de 4 GB, aunque el cliente de referencia rechaza cualquier carga útil de más de 32 MB.
+En el mensaje de la Figura 10-1, nuestra carga útil es de 101 bytes.
+
+Los siguientes 4 bytes son el campo de la suma de comprobación.
+El algoritmo de suma de comprobación es una elección extraña, ya que son los primeros 4 bytes del hash256 de la carga útil.
+Es una elección extraña porque las sumas de comprobación de los protocolos de red están normalmente diseñadas para tener capacidad de corrección de errores y el hash256 no la tiene.
+Dicho esto, hash256 es común en el resto del protocolo de Bitcoin, que es probablemente la razón por la que se utiliza aquí.
+
+El código para manejar los mensajes de red requiere que creemos una nueva clase:
+
+[fuente,python]
+----
+include::code-ch10/network.py[tag=source1]
+----
+
+include::code-ch10/answers.py[tag=exercise1,indent=0]
+
+include::code-ch10/answers.py[tag=exercise2,indent=0]
+
+include::code-ch10/answers.py[tag=exercise3,indent=0]
+
+=== Parsing the Payload
+
+Cada comando tiene una especificación de carga útil distinta.
+<<parsed_version_chap_ten>> es la carga útil analizada para `versión`.
+
+[[parsed_version_chap_ten]]
+Versión analizada
+image::images/prbc_1002.png[Mensaje de versión]
+
+Los campos están destinados a dar suficiente información para que dos nodos puedan pasar:[<span class="keep-together">comunicarse</span>].
+
+El primer campo es la versión del protocolo de red, que especifica qué mensajes pueden comunicarse.
+El campo de servicio proporciona información sobre las capacidades disponibles para los nodos de conexión.
+El campo timestamp es de 8 bytes (frente a los 4 bytes de la cabecera del bloque) y es la marca de tiempo de Unix en little-endian.
+
+Las direcciones IP pueden ser IPv6, IPv4 u OnionCat (un mapeo de las direcciones `.onion` de TOR a IPv6).
+Si es IPv4, los primeros 12 bytes son `0000000000000000ff` y los últimos 4 bytes son la IP.
+El puerto es de 2 bytes en big-endian. El valor por defecto en mainnet es 8333, que corresponde a `208d` en hexadecimal grande.
+
+Un nonce es un número utilizado por un nodo para detectar una conexión consigo mismo.
+El agente de usuario identifica el software que se está ejecutando.
+El campo de altura o último bloque ayuda al otro nodo a saber con qué bloque está sincronizado un nodo.
+
+El relé se utiliza para los filtros Bloom, a los que llegaremos en el <<capítulo_bloom_filters>>.
+
+Estableciendo algunos valores predeterminados razonables, nuestra clase `VersionMessage` tiene el siguiente aspecto:
+
+[fuente,python]
+----
+include::code-ch10/network.py[tag=source2]
+----
+
+En este punto, necesitamos una manera de serializar este mensaje.
+
+include::code-ch10/answers.py[tag=exercise4,indent=0]
+
+=== Apretón de manos de la red
+
+El apretón de manos de la red es la forma en que los nodos establecen la comunicación:
+
+ * A quiere conectarse a B y envía un mensaje de versión.
+ * B recibe el mensaje de versión, responde con un mensaje verack y envía su propio mensaje de versión.
+ * A recibe los mensajes de versión y verack y devuelve un mensaje verack.
+ * B recibe el mensaje verack y continúa la comunicación.
+
+Una vez finalizado el apretón de manos, A y B pueden comunicarse como quieran.
+Tenga en cuenta que no hay autenticación aquí, y depende de los nodos verificar todos los datos que reciben.
+Si un nodo envía una transacción o un bloque incorrecto, puede esperar que se le prohíba o se le desconecte.
+
+=== Conexión a la red
+
+La comunicación en red es complicada debido a su naturaleza asíncrona.
+Para experimentar, podemos establecer una conexión con un nodo de la red de forma sincrónica:
+
+[fuente,python]
+----
+>>> import socket
+>>> from network import NetworkEnvelope, VersionMessage
+>>> host = 'testnet.programmingbitcoin.com' # <1>
+>>> puerto = 18333
+>>> socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+>>> socket.connect((host, port))
+>>> stream = socket.makefile('rb', None) # <2>
+>>> version = VersionMessage() # <3>
+>>> envelope = NetworkEnvelope(version.command, version.serialize())
+>>> socket.sendall(envelope.serialize()) # <4>
+>>> while True:
+... new_message = NetworkEnvelope.parse(stream) # <5>
+... print(nuevo_mensaje)
+----
+<1> Este es un servidor que he montado para testnet.
+El puerto de testnet es 18333 por defecto.
+<2> Creamos un stream para poder leer del socket.
+Un stream hecho de esta manera se puede pasar a todos los métodos de parseo.
+<3> El primer paso del handshake es enviar un mensaje de versión.
+<4> Ahora enviamos el mensaje en el sobre correcto.
+<5> Esta línea leerá cualquier mensaje que entre a través de nuestro socket conectado.
+
+Conectando de esta manera, no podemos enviar hasta que hayamos recibido y no podemos responder inteligentemente a más de un mensaje a la vez.
+Una implementación más robusta utilizaría una biblioteca asíncrona (como `asyncio` en Python 3) para enviar y recibir sin ser bloqueado.
+
+También necesitamos una clase de mensaje verack, que crearemos aquí:
+
+[fuente,python]
+----
+include::code-ch10/network.py[tag=source3]
+----
+
+Un `VerAckMessage` es un mensaje de red mínimo.
+
+Ahora vamos a automatizar esto creando una clase que se encargue de la comunicación por nosotros:
+
+[fuente,python]
+----
+include::code-ch10/network.py[tag=source4]
+----
+<1> El método `send` envía un mensaje a través del socket.
+Se espera que la propiedad `command` y los métodos `serialize` existan en el objeto `message`.
+<2> El método `read` lee un nuevo mensaje desde el socket.
+<3> El método `wait_for` nos permite esperar uno de los varios comandos (específicamente, clases de mensajes).
+Junto con la naturaleza sincrónica de esta clase, un método como éste facilita la programación.
+Un nodo comercial definitivamente no usaría algo como esto.
+
+Ahora que tenemos un nodo, podemos hacer un handshake con otro nodo:
+
+[fuente,python]
+----
+>>> from network import SimpleNode, VersionMessage
+>>> node = SimpleNode('testnet.programmingbitcoin.com', testnet=True)
+>>> version = VersionMessage() # <1>
+>>> node.send(version) # <2>
+>>> verack_received = False
+>>> version_received = False
+>>> while not verack_received and not version_received:  # <3>
+... message = node.wait_for(VersionMessage, VerAckMessage) # <4>
+... si message.command == VerAckMessage.command:
+... verack_received = True
+... si no:
+... version_received = True
+... node.send(VerAckMessage())
+----
+<1> La mayoría de los nodos no se preocupan por los campos de `versión` como la dirección IP.
+Podemos conectarnos con los valores por defecto y todo irá bien.
+<2> Comenzamos el handshake enviando el mensaje de versión.
+<3> Sólo terminamos cuando hemos recibido tanto el verack como la versión.
+<4> Esperamos recibir un verack para nuestra versión y la versión del otro nodo.
+Sin embargo, no sabemos en qué orden llegarán.
+
+include::code-ch10/answers.py[tag=exercise5,indent=0]
+
+=== Obtener cabeceras de bloque
+
+Ahora que tenemos código para conectarnos a un nodo, ¿qué podemos hacer?
+Cuando cualquier nodo se conecta por primera vez a la red, los datos más cruciales para obtener y verificar son las cabeceras de los bloques.
+Para los nodos completos, la descarga de las cabeceras de los bloques les permite pedir asíncronamente bloques completos a varios nodos, paralelizando la descarga de los bloques.
+Para los clientes ligeros, la descarga de las cabeceras les permite verificar la prueba de trabajo de cada bloque.
+Como veremos en el <<capítulo_spv>>, los clientes ligeros podrán obtener pruebas de inclusión a través de la red, pero eso requiere que los clientes ligeros tengan las cabeceras de los bloques.
+
+Los nodos pueden darnos las cabeceras de los bloques sin ocupar mucho ancho de banda.
+El comando para obtener las cabeceras de bloque se llama `getheaders`, y tiene el aspecto de <<parsed_getheaders>>.
+
+[[parsed_getheaders]]
+.parsed getheaders
+image::images/prbc_1003.png[GetHeaders payload]
+
+Al igual que con la versión, comenzamos con la versión del protocolo, luego el número de grupos de cabecera de bloque en esta lista (este número puede ser más de 1 si hay una división de la cadena), luego la cabecera de bloque inicial y finalmente la cabecera de bloque final.
+Si especificamos que el bloque final es `000...000`, estamos indicando que queremos tantos como nos dé el otro nodo.
+El número máximo de cabeceras que podemos obtener de vuelta es de 2.000, o sea, casi un solo periodo de ajuste de dificultad (2.016 bloques).
+
+Este es el aspecto de la clase:
+
+[fuente,python]
+----
+include::code-ch10/network.py[tag=source5]
+----
+<1> Para los propósitos de este capítulo, vamos a asumir que el número de grupos de cabecera de bloque es 1.
+Una implementación más robusta manejaría más de un solo grupo de bloques, pero podemos descargar las cabeceras de bloque usando un solo grupo.
+<2> Se necesita un bloque inicial, de lo contrario no podemos crear un mensaje adecuado.
+<3> El bloque final suponemos que es nulo, o tantos como el servidor nos envíe si no está definido.
+
+include::code-ch10/answers.py[tag=exercise6,indent=0]
+
+=== Cabeceras Respuesta
+
+Ahora podemos crear un nodo, hacer un handshake, y luego pedir algunas cabeceras:
+
+[fuente,python]
+----
+>>> from io import BytesIO
+>>> from block import Block, GENESIS_BLOCK
+>>> from network import SimpleNode, GetHeadersMessage
+>>> node = SimpleNode('mainnet.programmingbitcoin.com', testnet=False)
+>>> node.handshake()
+>>> genesis = Block.parse(BytesIO(GENESIS_BLOCK))
+>>> getheaders = GetHeadersMessage(start_block=genesis.hash())
+>>> node.send(getheaders)
+----
+
+Ahora necesitamos una forma de recibir las cabeceras del otro nodo.
+El otro nodo enviará de vuelta el comando `headers`.
+Esta es una lista de cabeceras de bloque (<<parsed_headers_chap_ten>>), que ya aprendimos a analizar en <<chapter_blocks>>.
+La clase `HeadersMessage` puede aprovechar esto al analizarlo.
+
+[[parsed_headers_chap_ten]]
+Cabeceras analizadas
+image::images/prbc_1004.png[headers payload]
+
+El mensaje de cabecera comienza con el número de cabeceras como varint, que es un número de 1 a 2.000 inclusive.
+Sabemos que cada cabecera de bloque tiene 80 bytes.
+Luego tenemos el número de transacciones.
+El número de transacciones en el mensaje de cabecera es siempre 0.
+Esto puede ser un poco confuso al principio, ya que sólo pedimos las cabeceras y no las transacciones.
+La razón por la que los nodos se molestan en enviar el número de transacciones es porque el mensaje de cabecera está pensado para ser compatible con el formato del mensaje de bloque, que es la cabecera del bloque, el número de transacciones y, a continuación, las propias transacciones.
+Al especificar que el número de transacciones es 0, podemos utilizar el mismo motor de análisis que cuando se analiza un bloque completo:
+
+[fuente,python]
+----
+include::code-ch10/network.py[tag=source6]
+----
+<1> Cada bloque se analiza con el método `parse` de la clase `Block`, utilizando el mismo flujo que tenemos.
+<2> El número de transacciones es siempre 0 y es un remanente del análisis de bloques.
+<3> Si no obtenemos 0, algo está mal.
+
+Dada la conexión de red que hemos establecido, podemos descargar las cabeceras, comprobar su prueba de trabajo y validar los ajustes de dificultad de la cabecera del bloque de la siguiente manera:
+
+[fuente,pycon]
+----
+include::code-ch10/ejemplos.py[tag=ejemplo1]
+----
+<1> Comprueba que la prueba de trabajo es válida.
+<2> Comprobar que el bloque actual es posterior al anterior.
+<3> Comprobar que los bits/objetivo/dificultad es lo que esperamos en base al cálculo de la época anterior.
+<4> Al final de la época, calcular los siguientes bits/objetivo/dificultad.
+<5> Almacenar el primer bloque de la epoch para calcular los bits al final de la epoch.
+
+Tenga en cuenta que esto no funcionará en testnet ya que el algoritmo de ajuste de la dificultad es diferente.
+Para asegurarse de que se pueden encontrar bloques de forma consistente para las pruebas, si un bloque no se ha encontrado en testnet en 20 minutos, la dificultad baja a 1, haciendo que sea muy fácil encontrar un bloque.
+Esto se ha configurado así para que los probadores puedan seguir construyendo bloques en la red sin necesidad de un costoso equipo de minería.
+Un ASIC USB de 30 dólares puede encontrar normalmente unos cuantos bloques por minuto con la dificultad mínima.
+
+=== Conclusión
+
+Hemos conseguido conectarnos a un nodo de la red, hacer un handshake, descargar las cabeceras de los bloques y verificar que cumplen las reglas de consenso.
+En el siguiente capítulo, nos centraremos en obtener información sobre las transacciones que nos interesan de otro nodo de forma privada pero demostrable.
